@@ -1,0 +1,40 @@
+﻿class CameraControl {
+    constructor() {
+        this.isDragging = false;
+        this.theta = 0; this.phi = Math.PI / 2.5; this.distance = 45;
+        this.targetTheta = 0; this.targetPhi = Math.PI / 2.5;
+        const isDraggableElement = (e) => {
+            const draggableIds = ['friction-volume', 'draw-distance', 'frame-limit', 'time-control'];
+            return draggableIds.some(id => e.target.closest(`#${id}`));
+        };
+        const onDown = (e) => { if (!isDraggableElement(e)) this.isDragging = true; };
+        const onUp = () => this.isDragging = false;
+        const onMove = (e) => {
+            if (this.isDragging) {
+                this.targetTheta -= e.movementX * 0.005;
+                this.targetPhi = Math.max(0.1, Math.min(Math.PI/2 - 0.05, this.targetPhi + e.movementY * 0.005));
+            }
+        };
+        const onTouchStart = (e) => { if (!isDraggableElement(e)) this.isDragging = true; };
+        const onTouchEnd = () => this.isDragging = false;
+        const onTouchMove = (e) => {
+            if (this.isDragging && e.touches.length === 1) {
+                const touch = e.touches[0];
+                const prevTouch = this._lastTouch || touch;
+                this.targetTheta -= (touch.clientX - prevTouch.clientX) * 0.005;
+                this.targetPhi = Math.max(0.1, Math.min(Math.PI/2 - 0.05, this.targetPhi + (touch.clientY - prevTouch.clientY) * 0.005));
+                this._lastTouch = touch;
+            }
+        };
+        window.addEventListener('mousedown', onDown);
+        window.addEventListener('mouseup', onUp);
+        window.addEventListener('mousemove', onMove);
+        window.addEventListener('touchstart', onTouchStart, false);
+        window.addEventListener('touchend', onTouchEnd, false);
+        window.addEventListener('touchmove', onTouchMove, { passive: false });
+    }
+    update() {
+        this.theta += (this.targetTheta - this.theta) * 0.1;
+        this.phi += (this.targetPhi - this.phi) * 0.1;
+    }
+}

@@ -1,0 +1,941 @@
+﻿(function(){
+    const style = document.createElement('style');
+    style.textContent = `
+        @font-face {
+            font-family: 'Montserrat';
+            src: url('./Font/Montserrat-ExtraLight.ttf') format('truetype');
+            font-weight: 200;
+            font-style: normal;
+            font-display: fallback;
+        }
+        @font-face {
+            font-family: 'Montserrat';
+            src: url('./Font/Montserrat-Medium.ttf') format('truetype');
+            font-weight: 500;
+            font-style: normal;
+            font-display: fallback;
+        }
+        @font-face {
+            font-family: 'Montserrat';
+            src: url('./Font/Montserrat-Bold.ttf') format('truetype');
+            font-weight: 700;
+            font-style: normal;
+            font-display: fallback;
+        }
+        :root {
+            --bg: #eaf2ff;
+            --panel: rgba(255, 255, 255, 0.84);
+            --panel-strong: rgba(245, 250, 255, 0.96);
+            --border: rgba(31, 66, 124, 0.18);
+            --border-strong: rgba(31, 66, 124, 0.3);
+            --text: #1d3356;
+            --muted: #647a9b;
+            --accent: #2f7dff;
+            --accent-2: #14b8a6;
+            --danger: #d44c6e;
+            --shadow: 0 20px 42px rgba(41, 82, 140, 0.18);
+            --radius: 18px;
+            --radius-lg: 28px;
+            --glass: blur(16px) saturate(140%);
+            --hud-bg: rgba(255, 255, 255, 0.9);
+        }
+        * { box-sizing: border-box; font-family: 'Montserrat', 'Segoe UI', sans-serif; }
+        html, body {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            min-height: 100%;
+            background: var(--bg);
+        }
+        body {
+            overflow: hidden;
+            font-family: "Montserrat", "Segoe UI", sans-serif;
+            font-weight: 500;
+            color: var(--text);
+            user-select: none;
+            letter-spacing: 0.02em;
+        }
+        canvas {
+            display: block;
+            position: fixed;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+        }
+        .version-badge {
+            position: fixed;
+            top: 14px;
+            left: 14px;
+            z-index: 9999;
+            padding: 8px 12px;
+            border-radius: 12px;
+            background: rgba(12, 22, 48, 0.78);
+            color: #f8fbff;
+            font-size: 0.82rem;
+            letter-spacing: 0.18em;
+            font-weight: 700;
+            text-transform: uppercase;
+            pointer-events: none;
+            border: none;
+            box-shadow: 0 12px 24px rgba(0,0,0,0.16);
+        }
+        #derail-badge {
+            position: fixed;
+            bottom: 24px;
+            right: 24px;
+            z-index: 9999;
+            padding: 10px 16px;
+            border-radius: 14px;
+            background: linear-gradient(135deg, #d44c6e 0%, #c44569 100%);
+            color: #fff;
+            font-size: 0.75rem;
+            font-weight: 700;
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+            box-shadow: 0 8px 20px rgba(212, 76, 110, 0.35);
+            display: none;
+            animation: badge-pop 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+        @keyframes badge-pop {
+            0% { transform: scale(0) rotate(-10deg); opacity: 0; }
+            100% { transform: scale(1) rotate(0); opacity: 1; }
+        }
+
+        .screen {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 100;
+            transition: opacity 0.6s ease;
+            background: linear-gradient(135deg, #a8d5ff 0%, #87ceeb 50%, #5eb3e6 100%);
+            backdrop-filter: blur(10px);
+        }
+        #main-menu {
+            display: block;
+            overflow-y: auto;
+            padding: 0 24px;
+            scroll-behavior: smooth;
+        }
+        .menu-scroll {
+            min-height: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        .menu-hero-shell {
+            min-height: 100vh;
+            width: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 42px 0;
+        }
+        .whats-new {
+            min-height: 78vh;
+            width: min(820px, 100%);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: flex-start;
+            padding: 112px 20px 150px;
+            text-align: center;
+            color: #2d5a7b;
+        }
+        .whats-new h2 {
+            margin: 0 0 34px;
+            font-size: clamp(3rem, 8vw, 6.4rem);
+            line-height: 1;
+            letter-spacing: 0;
+            font-weight: 700;
+            text-transform: lowercase;
+            color: #1d3f5a;
+        }
+        .whats-new-list {
+            display: grid;
+            gap: 14px;
+            max-width: 620px;
+            margin: 0 auto;
+            font-size: 1rem;
+            line-height: 1.65;
+            color: #4a7ba7;
+        }
+        .whats-new-list p { margin: 0; }
+
+        .panel {
+            background: var(--panel);
+            border: none;
+            border-radius: var(--radius-lg);
+            box-shadow: var(--shadow);
+            backdrop-filter: var(--glass);
+        }
+        .panel.hero {
+            padding: 36px 40px 40px;
+            text-align: left;
+            min-width: 620px;
+            background: rgba(255, 255, 255, 0.92);
+            backdrop-filter: none;
+        }
+
+        .hero-grid {
+            display: grid;
+            grid-template-columns: 1.1fr 0.9fr;
+            gap: 26px;
+            align-items: center;
+        }
+        .hero-left { display: flex; flex-direction: column; gap: 16px; }
+        .hero-right { display: flex; justify-content: flex-end; }
+
+        .title {
+            font-family: "Montserrat", "Segoe UI", sans-serif;
+            font-size: 2.9rem;
+            font-weight: 700;
+            letter-spacing: 0.18em;
+            margin-bottom: 4px;
+            color: #1d3f5a;
+        }
+        .subtitle {
+            font-size: 0.85rem;
+            font-weight: 200;
+            letter-spacing: 0.32em;
+            margin-bottom: 6px;
+            color: #4a7ba7;
+        }
+        .hero-desc {
+            font-size: 1rem;
+            line-height: 1.5;
+            color: #2d5a7b;
+            max-width: 420px;
+        }
+        .hero-actions { display: flex; gap: 12px; margin-top: 12px; }
+
+        .btn {
+            padding: 14px 32px;
+            border-radius: 999px;
+            border: 1px solid transparent;
+            font-size: 0.9rem;
+            letter-spacing: 0.2em;
+            text-transform: uppercase;
+            cursor: pointer;
+            background: rgba(100, 130, 150, 0.5);
+            color: var(--text);
+            transition: transform 0.2s ease, background 0.2s ease, border-color 0.2s ease;
+        }
+        .btn:hover { transform: translateY(-2px); }
+        .btn-primary { background: #5ba3e8; color: #ffffff; border-color: rgba(255,255,255,0.3); font-weight: 600; }
+        .btn-primary:hover { background: #4a95d8; }
+        .btn-secondary { background: rgba(35, 122, 193, 0.13); color: #1f4b79; border-color: rgba(35, 122, 193, 0.24); }
+        .btn-secondary:hover { background: rgba(35, 122, 193, 0.22); }
+        .btn-ghost { background: rgba(255,255,255,0.8); color: var(--text); border-color: #cce5ff; }
+        .btn-danger { background: rgba(255, 107, 107, 0.24); color: #c44569; }
+
+        .step-container { text-align: center; margin-bottom: 26px; display: none; }
+        .active-step { display: block; }
+        .options { display: flex; gap: 16px; margin-top: 20px; justify-content: center; }
+        .options label { font-size: 0.75rem; letter-spacing: 0.2em; text-transform: uppercase; color: var(--muted); }
+        .options input { accent-color: var(--accent); }
+        .opt-btn {
+            padding: 12px 28px;
+            border: none;
+            background: rgba(255,255,255,0.58);
+            border-radius: 12px;
+            cursor: pointer;
+            transition: 0.2s;
+            font-size: 0.9rem;
+            color: var(--text);
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+        }
+        .opt-btn.selected { background: rgba(47, 125, 255, 0.14); border-color: rgba(47,125,255,0.55); color: #1f4f9e; }
+
+        .pair-card {
+            padding: 16px;
+            border-radius: 18px;
+            border: 1px solid rgba(200, 220, 240, 0.6);
+            background: rgba(255,255,255,0.95);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 10px;
+            min-width: 210px;
+        }
+        .pair-title {
+            font-size: 0.7rem;
+            letter-spacing: 0.3em;
+            color: #4a7ba7;
+            text-transform: uppercase;
+        }
+        #pair-code {
+            width: 180px;
+            padding: 14px 10px;
+            background: #f5f8ff;
+            border-radius: 12px;
+            display: grid;
+            place-items: center;
+            font-size: 1.35rem;
+            letter-spacing: 0.28em;
+            color: #0066cc;
+            font-weight: 600;
+            border: 1px solid #cce5ff;
+        }
+        .pair-status {
+            font-size: 0.75rem;
+            color: #0066cc;
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+        }
+        .pair-hint { font-size: 0.8rem; color: #4a7ba7; text-align: center; }
+
+        #hud {
+            position: absolute;
+            bottom: 28px;
+            left: 28px;
+            display: none;
+            width: 360px;
+            padding: 18px 20px 18px;
+            border-radius: var(--radius-lg);
+            background: var(--hud-bg);
+            border: none;
+            box-shadow: var(--shadow);
+            color: var(--text);
+            z-index: 10;
+        }
+        .hud-top {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            align-items: center;
+            margin-bottom: 14px;
+        }
+        .hud-chip {
+            padding: 6px 10px;
+            border-radius: 999px;
+            font-size: 0.65rem;
+            letter-spacing: 0.2em;
+            text-transform: uppercase;
+            background: rgba(255,255,255,0.05);
+            border: none;
+            color: var(--muted);
+        }
+        .hud-chip.is-live { color: #0f7a53; border-color: rgba(26, 161, 111, 0.4); background: rgba(50, 190, 135, 0.18); }
+        .hud-main { display: grid; grid-template-columns: 0.82fr 1.18fr; gap: 18px; align-items: center; }
+        .speed-dial {
+            border-radius: 16px;
+            padding: 14px;
+            background: rgba(255,255,255,0.58);
+            border: none;
+        }
+        .bar-block { display: block; }
+        .speed-value {
+            font-size: 2.8rem;
+            font-weight: 600;
+            font-variant-numeric: tabular-nums;
+        }
+        .speed-unit {
+            margin-top: 6px;
+            font-size: 0.7rem;
+            letter-spacing: 0.3em;
+            color: var(--muted);
+            text-transform: uppercase;
+        }
+        .bar-block { margin-bottom: 13px; }
+        .bar-label { font-size: 0.62rem; letter-spacing: 0; color: #6f7c72; text-transform: uppercase; }
+        .bar { height: 5px; background: rgba(78, 92, 82, 0.14); margin-top: 7px; overflow: hidden; border-radius: 999px; }
+        .fill-t { height: 100%; background: #2fc96f; width: 0%; transition: width 0.1s; }
+        .fill-b { height: 100%; background: #e35b5b; width: 0%; transition: width 0.1s; }
+        .hud-bottom {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: 8px;
+            font-size: 0.7rem;
+            color: var(--muted);
+            letter-spacing: 0.2em;
+            text-transform: uppercase;
+        }
+        #cam-txt { color: var(--accent); }
+
+        #time-control {
+            position: fixed;
+            right: 22px;
+            bottom: 22px;
+            display: none;
+            flex-direction: row;
+            align-items: flex-end;
+            gap: 10px;
+            z-index: 20;
+        }
+        .world-stack {
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            align-items: flex-end;
+            gap: 8px;
+        }
+        #time-toggle,
+        #weather-toggle,
+        #map-toggle {
+            padding: 8px 16px;
+            border-radius: 999px;
+            border: none;
+            background: rgba(255,255,255,0.85);
+            color: var(--text);
+            font-size: 0.7rem;
+            letter-spacing: 0.24em;
+            text-transform: uppercase;
+            cursor: pointer;
+            font-weight: 500;
+        }
+        #time-panel,
+        #weather-panel,
+        #map-panel {
+            width: 260px;
+            padding: 12px 16px 14px;
+            border-radius: var(--radius);
+            background: var(--panel);
+            border: none;
+            box-shadow: var(--shadow);
+            backdrop-filter: var(--glass);
+            display: none;
+            position: absolute;
+            right: 0;
+            bottom: 46px;
+        }
+        #time-panel.open,
+        #weather-panel.open,
+        #map-panel.open { display: block; }
+        #time-panel .time-row,
+        #weather-panel .time-row,
+        #map-panel .time-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 0.65rem;
+            letter-spacing: 0.22em;
+            color: var(--muted);
+            text-transform: uppercase;
+            margin-bottom: 10px;
+        }
+        #time-display,
+        #weather-display,
+        #map-display {
+            color: var(--text);
+            font-variant-numeric: tabular-nums;
+            letter-spacing: 0.18em;
+        }
+        #time-slider { width: 100%; accent-color: var(--accent); }
+        .world-opts {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+        }
+        .world-opt {
+            border: none;
+            background: rgba(255,255,255,0.85);
+            border-radius: 10px;
+            padding: 8px 6px;
+            color: var(--text);
+            font-size: 0.62rem;
+            letter-spacing: 0.14em;
+            text-transform: uppercase;
+            cursor: pointer;
+            font-weight: 500;
+        }
+        .world-opt.is-active {
+            border-color: rgba(47,125,255,0.58);
+            background: rgba(47,125,255,0.14);
+            color: #215db6;
+        }
+
+        #controls-hint {
+            position: absolute;
+            top: 24px;
+            right: 24px;
+            font-size: 0.75rem;
+            opacity: 0.7;
+            text-align: right;
+            color: var(--muted);
+            z-index: 10;
+        }
+
+        #hud-toast {
+            position: fixed;
+            top: 24px;
+            left: 50%;
+            transform: translateX(-50%) translateY(-10px);
+            padding: 10px 18px;
+            border-radius: 999px;
+            background: rgba(255, 255, 255, 0.95);
+            border: none;
+            color: var(--text);
+            font-size: 0.75rem;
+            letter-spacing: 0.2em;
+            text-transform: uppercase;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.25s ease, transform 0.25s ease;
+            z-index: 300;
+        }
+        #hud-toast.show {
+            opacity: 1;
+            transform: translateX(-50%) translateY(0);
+            pointer-events: auto;
+        }
+        #controller-screen {
+            position: fixed;
+            inset: 0;
+            display: none;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            background: radial-gradient(1200px 900px at 50% 20%, rgba(90, 130, 170, 0.3), transparent 60%),
+                        rgba(7, 9, 14, 0.95);
+            z-index: 500;
+            padding: 20px;
+        }
+        #controller-screen.active { display: flex; }
+        .controller-panel {
+            width: min(520px, 92vw);
+            border-radius: 24px;
+            background: var(--panel);
+            border: none;
+            padding: 22px;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            box-shadow: var(--shadow);
+        }
+        .controller-title {
+            font-family: "Montserrat", "Segoe UI", sans-serif;
+            font-size: 1.6rem;
+            letter-spacing: 0.12em;
+        }
+        .controller-status {
+            font-size: 0.8rem;
+            letter-spacing: 0.22em;
+            color: var(--muted);
+            text-transform: uppercase;
+        }
+        .controller-slider label {
+            font-size: 0.7rem;
+            letter-spacing: 0.25em;
+            color: var(--muted);
+            text-transform: uppercase;
+        }
+        .controller-slider input[type="range"] {
+            width: 100%;
+            accent-color: var(--accent);
+        }
+        .controller-buttons { display: flex; gap: 10px; flex-wrap: wrap; }
+        #controller-setup { display: flex; flex-direction: column; gap: 12px; }
+        #controller-code {
+            width: 100%;
+            padding: 12px 14px;
+            border-radius: 12px;
+            border: none;
+            background: rgba(250,253,255,0.9);
+            color: var(--text);
+            font-size: 1.1rem;
+            letter-spacing: 0.2em;
+            text-transform: uppercase;
+        }
+        #controller-code:focus { outline: none; border-color: rgba(47,125,255,0.55); }
+        .ctrl-btn {
+            flex: 1;
+            min-width: 120px;
+            padding: 12px 14px;
+            border-radius: 14px;
+            border: none;
+            background: rgba(250,253,255,0.9);
+            color: var(--text);
+            letter-spacing: 0.18em;
+            text-transform: uppercase;
+            font-size: 0.75rem;
+        }
+        .controller-subpanel {
+            border: none;
+            border-radius: 16px;
+            background: rgba(255,255,255,0.7);
+            padding: 14px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+        .controller-label {
+            font-size: 0.7rem;
+            letter-spacing: 0.24em;
+            text-transform: uppercase;
+            color: var(--muted);
+        }
+        .controller-handle {
+            display: grid;
+            grid-template-columns: 1fr auto;
+            gap: 14px;
+            align-items: center;
+            min-height: 290px;
+        }
+        .handle-labels {
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            height: 260px;
+            font-size: 0.72rem;
+            color: var(--muted);
+            letter-spacing: 0.18em;
+            text-transform: uppercase;
+        }
+        #ctrl-handle {
+            height: 260px;
+            width: 56px;
+            writing-mode: bt-lr;
+            -webkit-appearance: slider-vertical;
+            appearance: slider-vertical;
+            accent-color: var(--accent);
+        }
+
+        .overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(6, 8, 12, 0.65);
+            z-index: 200;
+            align-items: center;
+            justify-content: center;
+            backdrop-filter: blur(8px);
+        }
+        .overlay.active { display: flex; }
+        .panel.pause { width: 420px; padding: 22px; text-align: center; }
+        .panel.pause p { margin: 0; color: #f3f6ff; font-size: 1rem; line-height: 1.6; }
+        .panel.pause .pause-note { color: #d2e8ff; margin-top: 12px; font-size: 0.85rem; }
+        .panel.settings { width: 520px; padding: 22px; }
+        .panel.modal { width: 360px; padding: 22px; }
+        .panel.modal label { display: block; margin-bottom: 8px; font-size: 0.75rem; letter-spacing: 0.2em; text-transform: uppercase; color: var(--muted); }
+        .panel-title { margin: 0 0 16px 0; font-size: 1.1rem; letter-spacing: 0.2em; text-transform: uppercase; }
+
+        .tabs { display: flex; gap: 10px; margin-bottom: 18px; }
+        .tab {
+            padding: 8px 14px;
+            border-radius: 999px;
+            border: none;
+            background: rgba(255,255,255,0.05);
+            color: var(--muted);
+            font-size: 0.75rem;
+            letter-spacing: 0.2em;
+            text-transform: uppercase;
+            cursor: pointer;
+        }
+        .tab.is-active { border-color: rgba(125,211,252,0.6); color: var(--accent); background: rgba(125,211,252,0.12); }
+
+        .settings-content label { display: block; margin-bottom: 10px; font-size: 0.85rem; color: var(--muted); letter-spacing: 0.12em; text-transform: uppercase; }
+        .settings-content input[type="range"] { width: 100%; accent-color: var(--accent); }
+        .settings-checks { display: flex; gap: 16px; align-items: center; font-size: 0.85rem; }
+
+        .quality-btn {
+            padding: 10px 16px;
+            border-radius: 10px;
+            border: 1px solid rgba(125,211,252,0.3);
+            background: rgba(255,255,255,0.6);
+            color: var(--text);
+            font-size: 0.8rem;
+            letter-spacing: 0.15em;
+            text-transform: uppercase;
+            cursor: pointer;
+            transition: 0.2s ease;
+            font-weight: 500;
+        }
+        .quality-btn:hover { background: rgba(255,255,255,0.8); }
+        .quality-btn.is-active {
+            background: rgba(47,125,255,0.18);
+            border-color: rgba(47,125,255,0.6);
+            color: var(--accent);
+        }
+
+        .panel-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 18px; }
+        .panel-actions.center { justify-content: center; }
+
+        .text-input {
+            width: 100%;
+            padding: 10px 12px;
+            border-radius: 12px;
+            border: none;
+            background: rgba(255,255,255,0.58);
+            color: var(--text);
+            font-size: 1rem;
+        }
+        .text-input:focus { outline: none; border-color: rgba(125,211,252,0.6); }
+        .suggestions { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0 16px; }
+        .suggestion-btn {
+            padding: 6px 12px;
+            border-radius: 999px;
+            border: none;
+            background: rgba(250,253,255,0.9);
+            color: var(--text);
+            font-size: 0.75rem;
+            cursor: pointer;
+        }
+        .suggestion-btn:hover { border-color: rgba(125,211,252,0.6); color: var(--accent); }
+
+        @media (max-width: 860px) {
+            .panel.hero { min-width: auto; width: 92vw; }
+            .hero-grid { grid-template-columns: 1fr; }
+            .hero-right { justify-content: flex-start; }
+            #main-menu { padding: 0 12px; }
+            .whats-new { padding-top: 86px; }
+        }
+        @media (max-height: 500px) {
+            #hud { width: 260px; font-size: 0.75rem; padding: 12px; }
+        }
+    `;
+    document.head.appendChild(style);
+
+    const html = `
+        <div id="calm-overlay" style="position:fixed; inset:0; pointer-events:none; z-index:5; mix-blend-mode:multiply; background: radial-gradient(900px 600px at 60% 20%, rgba(140,190,255,0.12), transparent 60%), radial-gradient(700px 500px at 20% 80%, rgba(145,220,210,0.12), transparent 60%);"></div>
+        <div class="version-badge">v0.5.3</div>
+        <div id="derail-badge">열차 탈선!</div>
+        <div id="hud-toast">Not connected to the mobile phone</div>
+
+        <div id="controller-screen">
+            <div class="controller-panel">
+                <div class="controller-title">TRAIN RAILROADS</div>
+                <div id="controller-status" class="controller-status">ENTER PAIRING CODE</div>
+                <div id="controller-setup">
+                    <label style="font-size:0.7rem; letter-spacing:0.25em; color: var(--muted); text-transform:uppercase;">Pairing Code</label>
+                    <input id="controller-code" type="text" placeholder="ABC-123" maxlength="7" />
+                </div>
+                <div id="controller-controls" style="display:none;">
+                    <div id="controller-drive-panel" class="controller-subpanel">
+                        <div class="controller-label">Drive</div>
+                        <div class="controller-handle">
+                            <div class="handle-labels">
+                                <span>Throttle</span>
+                                <span>Neutral</span>
+                                <span>Brake</span>
+                            </div>
+                            <input id="ctrl-handle" type="range" min="-100" max="100" value="0" step="1">
+                        </div>
+                        <div class="controller-buttons">
+                            <button id="ctrl-cam" class="ctrl-btn">Camera</button>
+                            <button id="ctrl-stop" class="ctrl-btn">Stop</button>
+                        </div>
+                        <div style="font-size:0.78rem; color: var(--muted); line-height:1.5;">
+                            Keep this screen open. Your phone becomes the train controller.
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="main-menu" class="screen">
+            <div class="menu-scroll">
+                <div class="menu-hero-shell">
+                    <div class="panel hero">
+                        <div class="hero-grid">
+                            <div class="hero-left">
+                                <div>
+                                    <div class="title">TRAIN RAILROADS</div>
+                                    <div class="subtitle">run through nature. Slow, cinematic rail travel.</div>
+                                </div>
+                                <div class="hero-desc">
+                                    Open on phone and enter the pairing code to control the train
+                                </div>
+                                <div class="hero-actions">
+                                    <button class="btn btn-primary" onclick="openSeed()">ENTER WORLD</button>
+                                    <button id="keyboard-start" class="btn btn-secondary" onclick="window.desktopBypass=true;openSeed(true)">KEYBOARD START</button>
+                                </div>
+                            </div>
+                            <div class="hero-right">
+                                <div class="pair-card">
+                                    <div class="pair-title">Pairing Code</div>
+                                    <div id="pair-code">--- ---</div>
+                                    <div id="pair-status" class="pair-status">Generating code</div>
+                                    <div class="pair-hint">Open on phone and enter code</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <section class="whats-new">
+                    <h2>what's new?</h2>
+                    <div class="whats-new-list">
+                        <p>Add decorations</p>
+                        <p>Add pause and resume features</p>
+                        <p>Improved user functionality</p>
+                        <p>Version display updated to v0.5.3</p>
+                    </div>
+                </section>
+            </div>
+        </div>
+
+        <div id="pause-overlay" class="overlay" style="display:none;">
+            <div class="panel pause">
+                <div class="panel-title">PAUSED</div>
+                <p>Your journey is on hold. Press <strong>Space</strong> to continue.</p>
+                <div class="pause-note">Camera and weather controls remain available while paused.</div>
+            </div>
+        </div>
+
+        <div id="hud">
+            <div class="hud-top">
+                <div id="hud-conn" class="hud-chip">Controller: Offline</div>
+                <div class="hud-chip">Drive: Manual</div>
+            </div>
+            <div class="hud-main">
+                <div class="speed-dial">
+                    <div id="speed-txt" class="speed-value">0</div>
+                    <div class="speed-unit">KM/H</div>
+                </div>
+                <div>
+                    <div class="bar-block">
+                        <div class="bar-label">Throttle</div>
+                        <div class="bar"><div id="throttle-fill" class="fill-t"></div></div>
+                    </div>
+                    <div class="bar-block">
+                        <div class="bar-label">Brake</div>
+                        <div class="bar"><div id="brake-fill" class="fill-b"></div></div>
+                    </div>
+                </div>
+            </div>
+            <div class="hud-bottom">
+                <div id="cam-txt">CAMERA: 1ST PERSON</div>
+                <div>W/S or Phone</div>
+            </div>
+        </div>
+
+        <div id="time-control">
+            <div class="world-stack">
+                <button id="time-toggle" class="time-toggle">TIME</button>
+                <div id="time-panel">
+                    <div class="time-row">
+                        <span class="time-label">TIME</span>
+                        <span id="time-display">12:00</span>
+                    </div>
+                    <input id="time-slider" type="range" min="0" max="24" step="0.25" value="12">
+                </div>
+            </div>
+            <div class="world-stack">
+                <button id="weather-toggle">WEATHER</button>
+                <div id="weather-panel">
+                    <div class="time-row">
+                        <span>WEATHER</span>
+                        <span id="weather-display">SUNNY</span>
+                    </div>
+                    <div class="world-opts">
+                        <button class="world-opt weather-opt is-active" data-weather="sunny">SUNNY</button>
+                        <button class="world-opt weather-opt" data-weather="rain">RAIN</button>
+                        <button class="world-opt weather-opt" data-weather="snow">SNOW</button>
+                        <button class="world-opt weather-opt" data-weather="fog">FOG</button>
+                    </div>
+                </div>
+            </div>
+            <div class="world-stack">
+                <button id="map-toggle">MAP</button>
+                <div id="map-panel">
+                    <div class="time-row">
+                        <span>MAP</span>
+                        <span id="map-display">FOREST</span>
+                    </div>
+                    <div class="world-opts">
+                        <button class="world-opt map-opt" data-map="champaign">CHAMPAIGN</button>
+                        <button class="world-opt map-opt is-active" data-map="forest">FOREST</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div id="settings-overlay" class="overlay">
+            <div class="panel settings">
+                <h3 class="panel-title">SETTINGS</h3>
+                <div class="tabs">
+                    <button id="tab-general" class="tab is-active">GENERAL</button>
+                    <button id="tab-graphics" class="tab">GRAPHICS</button>
+                </div>
+
+                <div id="settings-content" class="settings-content">
+                    <div id="settings-general">
+                        <label>all sound: <span id="vol-val">50</span>%</label>
+                        <input id="friction-volume" type="range" min="0" max="100" value="50">
+                        <label>nature sound: <span id="nature-val">70</span>%</label>
+                        <input id="nature-volume" type="range" min="0" max="100" value="70">
+                        <label>weather sound: <span id="weather-val">80</span>%</label>
+                        <input id="weather-volume" type="range" min="0" max="100" value="80">
+                        <div class="settings-checks">
+                            <label><input type="checkbox" id="toggle-tree" checked> Trees</label>
+                        </div>
+                    </div>
+                    <div id="settings-graphics" style="display:none;">
+                        <label>GRAPHICS QUALITY:</label>
+                        <div class="settings-checks" style="margin-bottom:16px;">
+                            <button class="quality-btn" data-quality="low">LOW</button>
+                            <button class="quality-btn" data-quality="medium">MEDIUM</button>
+                            <button class="quality-btn" data-quality="high">HIGH</button>
+                        </div>
+                        <label>VIEW DISTANCE: <span id="draw-dist-val">20000</span>m</label>
+                        <input id="draw-distance" type="range" min="2000" max="40000" value="20000">
+                        <label>FRAME LIMIT: <span id="fps-val">0</span></label>
+                        <input id="frame-limit" type="range" min="0" max="144" value="0">
+                    </div>
+                </div>
+                <div class="panel-actions">
+                    <button id="btn-restart" class="btn btn-danger">Restart</button>
+                    <button id="btn-close-settings" class="btn btn-ghost">Close</button>
+                </div>
+            </div>
+        </div>
+
+        <div id="input-modal" class="overlay">
+            <div class="panel modal">
+                <h3 id="modal-title" class="panel-title">INPUT VALUE</h3>
+                <div style="margin-bottom:16px;">
+                    <label id="modal-label">Input:</label>
+                    <input id="modal-input" type="text" class="text-input">
+                    <div id="modal-hint" style="font-size:0.75rem; color: var(--muted); margin-top:6px; min-height:20px;"></div>
+                </div>
+                <div id="modal-suggestions" class="suggestions"></div>
+                <div class="panel-actions center">
+                    <button id="modal-btn-ok" class="btn btn-primary">OK</button>
+                    <button id="modal-btn-cancel" class="btn btn-ghost">Cancel</button>
+                </div>
+            </div>
+        </div>
+
+        <div id="controls-hint">W/S: Throttle & Brake<br>Tab: Camera<br>Space: Pause / Resume<br>Drag: Orbit Camera</div>
+    `;
+
+    window.gui = {
+        showToast: function(message, options = {}) {
+            const toast = document.getElementById('hud-toast');
+            if (!toast) return;
+            
+            toast.innerText = message;
+            toast.classList.add('show');
+            
+            const existingBtn = toast.querySelector('.toast-btn');
+            if (existingBtn) existingBtn.remove();
+            
+            if (options.buttonText && options.onButtonClick) {
+                const btn = document.createElement('button');
+                btn.className = 'toast-btn btn btn-primary';
+                btn.innerText = options.buttonText;
+                btn.style.marginLeft = '15px';
+                btn.style.padding = '6px 15px';
+                btn.style.fontSize = '0.7rem';
+                btn.onclick = (e) => {
+                    e.stopPropagation();
+                    options.onButtonClick();
+                };
+                toast.appendChild(btn);
+            }
+            
+            if (options.duration !== 0) {
+                setTimeout(() => {
+                    toast.classList.remove('show');
+                }, options.duration || 3000);
+            }
+        }
+    };
+
+    const container = document.createElement('template');
+    container.innerHTML = html.trim();
+    document.body.insertBefore(container.content, document.body.firstChild);
+})();

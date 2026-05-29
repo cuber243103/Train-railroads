@@ -1,0 +1,138 @@
+﻿function showHudToast(message) {
+const toast = document.getElementById('hud-toast');
+if (!toast) return;
+toast.innerText = message;
+toast.classList.add('show');
+clearTimeout(showHudToast._t);
+showHudToast._t = setTimeout(() => toast.classList.remove('show'), 2000);
+}
+
+function isMobileLinked() {
+const appLinked = !!(window.app && app.remote && app.remote.connected);
+const peerLinked = !!(window.remoteControl && remoteControl.conn && remoteControl.conn.open);
+return appLinked || peerLinked;
+}
+
+function openSeed(force = false) {
+if (force) window.desktopBypass = true;
+const bypass = !!window.desktopBypass;
+if (!force && !bypass && !isMobileLinked()) {
+showHudToast('Not connected to the mobile phone. Use Keyboard Start or press Enter to begin on desktop.');
+return;
+}
+const main = document.getElementById('main-menu');
+if (main) main.style.opacity = '0';
+setTimeout(() => {
+if (main) main.style.display = 'none';
+startGame();
+}, 380);
+}
+
+function setEnv() {
+worldConfig.env = 'hill';
+}
+
+function startGame() {
+if (window.remoteControl && remoteControl.isController) return;
+if (window.app && app.isStarted) return;
+worldConfig.env = 'hill';
+worldConfig.river = true;
+worldConfig.tree = true;
+const seed = document.getElementById('seed-selection');
+if (seed) seed.style.display = 'none';
+const hud = document.getElementById('hud');
+if (hud) hud.style.display = 'block';
+const oldCanvas = document.querySelector('canvas');
+if (oldCanvas) oldCanvas.remove();
+app.isStarted = true;
+app.preInit();
+if (window.desktopBypass && app.setRemoteConnected) {
+    app.setRemoteConnected(false);
+    const hudConn = document.getElementById('hud-conn');
+    if (hudConn) hudConn.innerText = 'Controller: Keyboard';
+}
+if (window.remoteControl && remoteControl.notifyGameStarted) remoteControl.notifyGameStarted();
+}
+
+(function setupSettingsPanel() {
+const settingsOverlay = document.getElementById('settings-overlay');
+const settingsTab = document.getElementById('tab-graphics');
+const btnCloseSettings = document.getElementById('btn-close-settings');
+const tabGeneral = document.getElementById('tab-general');
+const tabGraphics = document.getElementById('tab-graphics');
+const settingsGeneralDiv = document.getElementById('settings-general');
+const settingsGraphicsDiv = document.getElementById('settings-graphics');
+
+if (!settingsOverlay) return;
+
+document.addEventListener('keydown', (e) => {
+if (e.key === 'Escape') {
+if (settingsOverlay.classList.contains('active')) {
+settingsOverlay.classList.remove('active');
+}
+}
+});
+
+document.addEventListener('keydown', (e) => {
+const menu = document.getElementById('main-menu');
+if (e.key === 'Enter' && menu && menu.style.display !== 'none' && !['INPUT','TEXTAREA'].includes(document.activeElement?.tagName)) {
+    window.desktopBypass = true;
+    openSeed(true);
+}
+});
+
+if (btnCloseSettings) {
+btnCloseSettings.addEventListener('click', () => {
+settingsOverlay.classList.remove('active');
+});
+}
+
+if (tabGeneral) {
+tabGeneral.addEventListener('click', () => {
+tabGeneral.classList.add('is-active');
+if (tabGraphics) tabGraphics.classList.remove('is-active');
+if (settingsGeneralDiv) settingsGeneralDiv.style.display = 'block';
+if (settingsGraphicsDiv) settingsGraphicsDiv.style.display = 'none';
+});
+}
+
+if (tabGraphics) {
+tabGraphics.addEventListener('click', () => {
+tabGraphics.classList.add('is-active');
+if (tabGeneral) tabGeneral.classList.remove('is-active');
+if (settingsGeneralDiv) settingsGeneralDiv.style.display = 'none';
+if (settingsGraphicsDiv) settingsGraphicsDiv.style.display = 'block';
+app.syncGraphicsQualityUi();
+});
+}
+
+const qualityBtns = document.querySelectorAll('.quality-btn');
+qualityBtns.forEach((btn) => {
+btn.addEventListener('click', () => {
+const quality = btn.getAttribute('data-quality');
+if (window.app) {
+app.setGraphicsQuality(quality);
+app.syncGraphicsQualityUi();
+}
+});
+});
+
+const openSettingsKey = (e) => {
+if (e.key === 'Escape' && window.app && app.isStarted) {
+if (!settingsOverlay.classList.contains('active')) {
+settingsOverlay.classList.add('active');
+tabGeneral.classList.add('is-active');
+if (tabGraphics) tabGraphics.classList.remove('is-active');
+if (settingsGeneralDiv) settingsGeneralDiv.style.display = 'block';
+if (settingsGraphicsDiv) settingsGraphicsDiv.style.display = 'none';
+}
+}
+};
+
+setTimeout(() => {
+document.addEventListener('keydown', openSettingsKey);
+}, 1000);
+})();
+
+
+

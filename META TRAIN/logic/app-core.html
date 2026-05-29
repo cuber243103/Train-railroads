@@ -1,0 +1,934 @@
+﻿const app = {
+scene: null, camera: null, renderer: null, clock: new THREE.Clock(),
+train: null, world: null, camCtrl: null,
+renderTarget: null, postScene: null, postCamera: null, postMaterial: null, postMesh: null,
+isFirstPerson: true, isStarted: false, isPaused: false,
+input: { throttle: 0, brake: 0, keys: {} },
+remote: { active: false, throttle: 0, brake: 0, connected: false },
+frameLimit: 0, _lastFrameTime: 0,
+graphicsQuality: 'high', _perfProfile: null, _renderPixelRatio: 1,
+timeValue: 12,
+weatherMode: 'sunny',
+mapMode: 'forest',
+
+getSavedGraphicsQuality() {
+try {
+const stored = localStorage.getItem('trainGraphicsQuality');
+return (stored === 'low' || stored === 'medium' || stored === 'high') ? stored : 'high';
+} catch (e) {
+return 'high';
+}
+},
+
+makePerformanceProfile(quality = 'high') {
+const isLow = quality === 'low';
+const isMed = quality === 'medium';
+return {
+    quality: quality,
+    lowSpec: isLow,
+    maxPixelRatio: isLow ? 1 : (isMed ? 1.5 : 2),
+    shadowMapSize: isLow ? 1024 : (isMed ? 2048 : 4096),
+    postSamples: isLow ? 0 : (isMed ? 2 : 4),
+    treeShadowMode: isLow ? 'trunk' : (isMed ? 'trunk' : 'full'),
+    treeDetail: isLow ? 'low' : (isMed ? 'medium' : 'full'),
+    textureSize: isLow ? 256 : (isMed ? 384 : 512),
+    defaultFrameLimit: isLow ? 30 : (isMed ? 0 : 0)
+};
+},
+
+getRenderPixelRatio() {
+const profile = this._perfProfile || this.makePerformanceProfile(this.graphicsQuality);
+return Math.min(window.devicePixelRatio || 1, profile.maxPixelRatio || 2);
+},
+
+setGraphicsQuality(quality = 'high', options = {}) {
+const safe = (quality === 'low' || quality === 'medium') ? quality : 'high';
+this.graphicsQuality = safe;
+this._perfProfile = this.makePerformanceProfile(safe);
+window.__trainPerfProfile = this._perfProfile;
+try { localStorage.setItem('trainGraphicsQuality', safe); } catch (e) {}
+
+this.frameLimit = this._perfProfile.defaultFrameLimit;
+this._lastFrameTime = 0;
+const fpsInput = document.getElementById('frame-limit');
+const fpsVal = document.getElementById('fps-val');
+if (fpsInput) fpsInput.value = String(this.frameLimit);
+if (fpsVal) fpsVal.innerText = String(this.frameLimit);
+
+if (envSystem) {
+envSystem.profile = this._perfProfile;
+if (envSystem.sunLight && envSystem.sunLight.shadow) {
+const size = this._perfProfile.shadowMapSize;
+envSystem.sunLight.shadow.mapSize.set(size, size);
+if (envSystem.sunLight.shadow.map) {
+envSystem.sunLight.shadow.map.dispose();
+envSystem.sunLight.shadow.map = null;
+}
+envSystem.sunLight.shadow.needsUpdate = true;
+}
+}
+
+this._renderPixelRatio = this.getRenderPixelRatio();
+if (this.renderer) this.onWindowResize();
+if (this.renderTarget && this.renderer && this.renderer.capabilities && this.renderer.capabilities.isWebGL2) {
+this.renderTarget.samples = this._perfProfile.postSamples;
+}
+if (options.rebuild && this.world && this.train) this.rebuildWorldForMap(this.mapMode);
+return safe;
+},
+
+syncGraphicsQualityUi() {
+const valueEl = document.getElementById('quality-val');
+if (valueEl) valueEl.innerText = this.graphicsQuality.toUpperCase();
+document.querySelectorAll('.quality-btn').forEach((btn) => {
+btn.classList.toggle('is-active', btn.getAttribute('data-quality') === this.graphicsQuality);
+});
+},
+
+unlockEasterEggBadge() {
+    try {
+        localStorage.setItem('derailEasterEgg', 'true');
+        if (window.gui && window.gui.showToast) {
+            window.gui.showToast("이스터에그 발견! '열차 탈선!' 배지를 획득했습니다.", { duration: 5000 });
+        }
+        this.updateBadgeDisplay();
+    } catch (e) {}
+},
+
+updateBadgeDisplay() {
+    const badge = document.getElementById('derail-badge');
+    if (badge) {
+        const unlocked = localStorage.getItem('derailEasterEgg') === 'true';
+        badge.style.display = unlocked ? 'block' : 'none';
+    }
+},
+
+preInit() {
+this.graphicsQuality = this.getSavedGraphicsQuality();
+this._perfProfile = this.makePerformanceProfile(this.graphicsQuality);
+window.__trainPerfProfile = this._perfProfile;
+this.frameLimit = this._perfProfile.defaultFrameLimit;
+this._renderPixelRatio = this.getRenderPixelRatio();
+this.scene = new THREE.Scene();
+// 초기 배경색은 EnvironmentSystem이 덮어씌움
+this.scene.background = new THREE.Color(0xddeeff);
+this.scene.fog = new THREE.FogExp2(0xddeeff, 0.0004);
+
+this.camera = new THREE.PerspectiveCamera(60, window.innerWidth/window.innerHeight, 0.5, 20000);
+this.camCtrl = new CameraControl();
+this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance', alpha: false, stencil: false });
+this.renderer.setSize(window.innerWidth, window.innerHeight);
+this.renderer.setPixelRatio(this._renderPixelRatio);
+this.renderer.outputEncoding = THREE.sRGBEncoding;
+this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+this.renderer.toneMappingExposure = 1.12;
+this.renderer.physicallyCorrectLights = true;
+this.renderer.shadowMap.enabled = true;
+this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+document.body.appendChild(this.renderer.domElement);
+
+this.updateBadgeDisplay();
+
+this.physicsWorld = new CANNON.World();
+this.physicsWorld.gravity.set(0, -9.82, 0);
+this.physicsWorld.broadphase = new CANNON.NaiveBroadphase();
+this.physicsWorld.solver.iterations = 10;
+
+this.initPostEffect();
+
+// 기존 조명 제거하고 EnvironmentSystem 사용
+envSystem.init(this.scene, this.renderer);
+
+this.world = new WorldBuilder(this.scene, this.mapMode, this.physicsWorld);
+this.world.build();
+if (this.world && this.world.applyMapMode) this.world.applyMapMode(this.mapMode);
+this.setWeatherMode(this.weatherMode);
+const texToggle = document.getElementById('toggle-texture');
+if (texToggle) texToggle.checked = !!worldConfig.texture;
+this.train = new Train(this.scene, this.world.trackCurve);
+
+// 명상 게임 분위기: 입자 시스템
+this.particleSystem = new ParticleSystem(this.scene, this.camera);
+
+this.initAudio();
+this.bindEvents();
+this.initTimeControl();
+this.animate();
+},
+
+initPostEffect() {
+const size = new THREE.Vector2(window.innerWidth, window.innerHeight);
+const dpr = this._renderPixelRatio || this.getRenderPixelRatio();
+this.renderTarget = new THREE.WebGLRenderTarget(size.x * dpr, size.y * dpr, {
+    minFilter: THREE.LinearFilter,
+    magFilter: THREE.LinearFilter,
+    format: THREE.RGBAFormat,
+    type: THREE.UnsignedByteType,
+});
+if (this.renderer && this.renderer.capabilities && this.renderer.capabilities.isWebGL2 && this._perfProfile.postSamples > 0) {
+    this.renderTarget.samples = this._perfProfile.postSamples;
+}
+this.postScene = new THREE.Scene();
+this.postCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+this.postMaterial = new THREE.ShaderMaterial({
+    uniforms: {
+        tDiffuse: { value: null },
+        resolution: { value: new THREE.Vector2(size.x * dpr, size.y * dpr) },
+        time: { value: 0.0 },
+    },
+    vertexShader: `
+        varying vec2 vUv;
+        void main() {
+            vUv = uv;
+            gl_Position = vec4(position, 1.0);
+        }
+    `,
+    fragmentShader: `
+        uniform sampler2D tDiffuse;
+        uniform vec2 resolution;
+        uniform float time;
+        varying vec2 vUv;
+
+        vec3 fxaa(sampler2D tex, vec2 uv, vec2 resolution) {
+            vec2 inverseResolution = 1.0 / resolution;
+            vec3 rgbNW = texture2D(tex, uv + vec2(-1.0, -1.0) * inverseResolution).rgb;
+            vec3 rgbNE = texture2D(tex, uv + vec2(1.0, -1.0) * inverseResolution).rgb;
+            vec3 rgbSW = texture2D(tex, uv + vec2(-1.0, 1.0) * inverseResolution).rgb;
+            vec3 rgbSE = texture2D(tex, uv + vec2(1.0, 1.0) * inverseResolution).rgb;
+            vec3 rgbM  = texture2D(tex, uv).rgb;
+            vec3 luma = vec3(0.299, 0.587, 0.114);
+            float lumaNW = dot(rgbNW, luma);
+            float lumaNE = dot(rgbNE, luma);
+            float lumaSW = dot(rgbSW, luma);
+            float lumaSE = dot(rgbSE, luma);
+            float lumaM  = dot(rgbM,  luma);
+            float lumaMin = min(lumaM, min(min(lumaNW, lumaNE), min(lumaSW, lumaSE)));
+            float lumaMax = max(lumaM, max(max(lumaNW, lumaNE), max(lumaSW, lumaSE)));
+            vec2 dir;
+            dir.x = -((lumaNW + lumaNE) - (lumaSW + lumaSE));
+            dir.y =  ((lumaNW + lumaSW) - (lumaNE + lumaSE));
+            float dirReduce = max((lumaNW + lumaNE + lumaSW + lumaSE) * 0.25 * 0.5, 1.0/128.0);
+            float rcpDirMin = 1.0 / (min(abs(dir.x), abs(dir.y)) + dirReduce);
+            dir = clamp(dir * rcpDirMin * 1.41421356, vec2(-8.0), vec2(8.0)) * inverseResolution;
+            vec3 rgbA = 0.5 * (
+                texture2D(tex, uv + dir * (1.0/3.0 - 0.5)).rgb +
+                texture2D(tex, uv + dir * (2.0/3.0 - 0.5)).rgb);
+            vec3 rgbB = rgbA * 0.5 + 0.25 * (
+                texture2D(tex, uv + dir * -0.5).rgb +
+                texture2D(tex, uv + dir * 0.5).rgb);
+            float lumaB = dot(rgbB, luma);
+            return (lumaB < lumaMin || lumaB > lumaMax) ? rgbA : rgbB;
+        }
+
+        void main() {
+            vec3 color = fxaa(tDiffuse, vUv, resolution);
+            color = pow(color, vec3(1.0/1.05));
+            gl_FragColor = vec4(color, 1.0);
+        }
+    `,
+    transparent: false,
+});
+const quad = new THREE.PlaneGeometry(2, 2);
+this.postMesh = new THREE.Mesh(quad, this.postMaterial);
+this.postScene.add(this.postMesh);
+},
+
+initAudio() {
+this._friction = { volume: 0.5, gainNode: null, filter: null, ctx: null, src: null };
+this._audio = { masterGain: null, natureGain: null, natureFilter: null, natureSrc: null, weatherGain: null, weatherFilter: null, weatherSrc: null, buffers: {}, master: 0.5, nature: 0.7, weather: 0.8, htmlMode: false, elements: null };
+try {
+const AudioCtx = window.AudioContext || window.webkitAudioContext;
+const ctx = new AudioCtx();
+this._friction.ctx = ctx;
+this._audio.ctx = ctx;
+console.log('AudioContext created, state:', ctx.state);
+const masterGain = ctx.createGain();
+masterGain.gain.value = this._audio.master;
+masterGain.connect(ctx.destination);
+this._audio.masterGain = masterGain;
+
+const bufferSize = ctx.sampleRate * 2;
+const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+const data = buffer.getChannelData(0);
+for (let i = 0; i < bufferSize; i++) data[i] = (Math.random() * 2 - 1) * 0.2;
+const src = ctx.createBufferSource();
+src.buffer = buffer;
+src.loop = true;
+const filter = ctx.createBiquadFilter();
+filter.type = 'bandpass';
+filter.frequency.value = 400;
+const gain = ctx.createGain();
+gain.gain.value = 0;
+src.connect(filter);
+filter.connect(gain);
+gain.connect(masterGain);
+src.start();
+this._friction.gainNode = gain;
+this._friction.filter = filter;
+this._friction.src = src;
+
+const soundPaths = {
+    nature: 'sound/nature/nature.mp3',
+    rain: 'sound/weather/rain.mp3',
+    snow: 'sound/weather/snow.mp3'
+};
+const resolveAudioUrl = (path) => new URL(path, document.baseURI).href;
+if (window.location.protocol === 'file:') {
+    this._startHtmlAudio(soundPaths);
+    if (ctx.state === 'suspended') {
+        const resume = () => {
+            ctx.resume().catch(() => {});
+            document.body.removeEventListener('pointerdown', resume);
+            document.body.removeEventListener('keydown', resume);
+        };
+        document.body.addEventListener('pointerdown', resume);
+        document.body.addEventListener('keydown', resume);
+    }
+    return;
+}
+
+const decodeAudio = (arrayBuffer) => new Promise((resolve, reject) => ctx.decodeAudioData(arrayBuffer, resolve, reject));
+const loadAudio = (url) => fetch(resolveAudioUrl(url)).then((res) => {
+    if (!res.ok) throw new Error(`Audio request failed: ${res.status} ${url}`);
+    return res.arrayBuffer();
+}).then(decodeAudio);
+Promise.all([
+    loadAudio(soundPaths.nature),
+    loadAudio(soundPaths.rain),
+    loadAudio(soundPaths.snow)
+]).then(([natureBuffer, rainBuffer, snowBuffer]) => {
+    console.log('Audio buffers loaded successfully');
+    this._audio.buffers.nature = natureBuffer;
+    this._audio.buffers.rain = rainBuffer;
+    this._audio.buffers.snow = snowBuffer;
+
+    const natureGain = ctx.createGain();
+    natureGain.gain.value = this._audio.nature;
+    console.log('Nature gain set to:', this._audio.nature);
+    const natureFilter = ctx.createBiquadFilter();
+    natureFilter.type = 'lowpass';
+    natureFilter.frequency.value = 1200;
+    const natureSrc = ctx.createBufferSource();
+    natureSrc.buffer = natureBuffer;
+    natureSrc.loop = true;
+    natureSrc.connect(natureFilter);
+    natureFilter.connect(natureGain);
+    natureGain.connect(masterGain);
+    natureSrc.start();
+    console.log('Nature audio started');
+    this._audio.natureGain = natureGain;
+    this._audio.natureFilter = natureFilter;
+    this._audio.natureSrc = natureSrc;
+
+    const weatherGain = ctx.createGain();
+    weatherGain.gain.value = 0;
+    const weatherFilter = ctx.createBiquadFilter();
+    weatherFilter.type = 'lowpass';
+    weatherFilter.frequency.value = 1600;
+    const weatherSrc = ctx.createBufferSource();
+    weatherSrc.buffer = this.weatherMode === 'snow' ? snowBuffer : rainBuffer;
+    weatherSrc.loop = true;
+    weatherSrc.connect(weatherFilter);
+    weatherFilter.connect(weatherGain);
+    weatherGain.connect(masterGain);
+    weatherSrc.start();
+    this._audio.weatherGain = weatherGain;
+    this._audio.weatherFilter = weatherFilter;
+    this._audio.weatherSrc = weatherSrc;
+    this._audio.buffers.rain = rainBuffer;
+    this._audio.buffers.snow = snowBuffer;
+    this._syncWeatherSound(this.weatherMode);
+}).catch((err) => console.warn('Audio load fail', err));
+
+if (ctx.state === 'suspended') {
+    console.log('AudioContext suspended, adding resume listener');
+    const resume = () => {
+        ctx.resume().then(() => console.log('AudioContext resumed')).catch(() => {});
+        document.body.removeEventListener('pointerdown', resume);
+    };
+    document.body.addEventListener('pointerdown', resume);
+    // 페이지 로드 후 바로 resume 시도
+    ctx.resume().then(() => console.log('AudioContext resumed on load')).catch(() => console.log('Resume on load failed'));
+} else {
+    console.log('AudioContext not suspended');
+}
+} catch (e) { console.warn('Audio Fail', e); }
+},
+
+_startHtmlAudio(soundPaths) {
+    const resolveAudioUrl = (path) => new URL(path, document.baseURI).href;
+    const makeLoop = (key) => {
+        const el = new Audio(resolveAudioUrl(soundPaths[key]));
+        el.loop = true;
+        el.preload = 'auto';
+        el.addEventListener('error', () => console.warn('HTML audio load fail', soundPaths[key], el.error));
+        return el;
+    };
+    this._audio.htmlMode = true;
+    this._audio.elements = {
+        nature: makeLoop('nature'),
+        rain: makeLoop('rain'),
+        snow: makeLoop('snow')
+    };
+    this._updateHtmlAudioVolumes();
+    const startAll = () => {
+        const attempts = Object.entries(this._audio.elements).map(([key, el]) => {
+            const play = el.play();
+            if (play && play.catch) {
+                return play.catch((err) => {
+                    console.warn('HTML audio play fail', key, err);
+                    return false;
+                });
+            }
+            return true;
+        });
+        Promise.all(attempts).then((results) => {
+            if (results.some((result) => result === false)) {
+                document.body.addEventListener('pointerdown', startAll, { once: true });
+                document.body.addEventListener('keydown', startAll, { once: true });
+            }
+        });
+    };
+    startAll();
+},
+
+_updateHtmlAudioVolumes() {
+    if (!this._audio || !this._audio.htmlMode || !this._audio.elements) return;
+    const clamp = (value) => Math.max(0, Math.min(1, value));
+    const master = clamp(this._audio.master);
+    const nature = this._audio.elements.nature;
+    const rain = this._audio.elements.rain;
+    const snow = this._audio.elements.snow;
+    nature.volume = clamp(master * this._audio.nature);
+    rain.volume = this.weatherMode === 'rain' ? clamp(master * this._audio.weather) : 0;
+    snow.volume = this.weatherMode === 'snow' ? clamp(master * this._audio.weather) : 0;
+},
+
+onWindowResize() {
+    const width = window.innerWidth;
+    const height = window.innerHeight;
+    const dpr = this.getRenderPixelRatio();
+    this._renderPixelRatio = dpr;
+    if (this.renderer) {
+        this.renderer.setPixelRatio(dpr);
+        this.renderer.setSize(width, height);
+    }
+    if (this.renderTarget) {
+        this.renderTarget.setSize(width * dpr, height * dpr);
+    }
+    if (this.camera && this.camera.isPerspectiveCamera) {
+        this.camera.aspect = width / height;
+        this.camera.updateProjectionMatrix();
+    }
+    if (this.postMaterial && this.postMaterial.uniforms && this.postMaterial.uniforms.resolution) {
+        this.postMaterial.uniforms.resolution.value.set(width * dpr, height * dpr);
+    }
+},
+
+bindEvents() {
+if(this.eventsBound) return;
+window.addEventListener('keydown', (e) => {
+if(e.code === 'Tab') {
+	e.preventDefault();
+	this.toggleCamera();
+}
+if(e.code === 'Space' && this.isStarted && document.activeElement && !['INPUT','TEXTAREA','BUTTON','SELECT'].includes(document.activeElement.tagName)) {
+	e.preventDefault();
+	this.togglePause();
+}
+this.input.keys[e.key.toLowerCase()] = true;
+});
+window.addEventListener('keyup', (e) => this.input.keys[e.key.toLowerCase()] = false);
+window.addEventListener('resize', () => this.onWindowResize());
+window.addEventListener('keydown', (e) => {
+if (e.key === 'Escape') {
+const overlay = document.getElementById('settings-overlay');
+overlay.style.display = (overlay.style.display === 'flex') ? 'none' : 'flex';
+}
+});
+
+// Settings UI Handlers
+document.getElementById('friction-volume').addEventListener('input', (e) => {
+e.stopPropagation();
+this._audio.master = e.target.value / 100;
+if (this._audio && this._audio.masterGain) this._audio.masterGain.gain.value = this._audio.master;
+this._updateHtmlAudioVolumes();
+document.getElementById('vol-val').innerText = e.target.value;
+});
+document.getElementById('nature-volume').addEventListener('input', (e) => {
+e.stopPropagation();
+this._audio.nature = e.target.value / 100;
+if (this._audio && this._audio.natureGain) this._audio.natureGain.gain.value = this._audio.nature;
+this._updateHtmlAudioVolumes();
+document.getElementById('nature-val').innerText = e.target.value;
+});
+document.getElementById('weather-volume').addEventListener('input', (e) => {
+e.stopPropagation();
+this._audio.weather = e.target.value / 100;
+if (this._audio && this._audio.weatherGain) {
+const active = ['rain','snow'].includes(this.weatherMode);
+this._audio.weatherGain.gain.value = active ? this._audio.weather : 0;
+}
+this._updateHtmlAudioVolumes();
+document.getElementById('weather-val').innerText = e.target.value;
+});
+const tabGeneral = document.getElementById('tab-general');
+const tabGraphics = document.getElementById('tab-graphics');
+const showGeneral = () => {
+document.getElementById('settings-general').style.display = '';
+document.getElementById('settings-graphics').style.display = 'none';
+if (tabGeneral) tabGeneral.classList.add('is-active');
+if (tabGraphics) tabGraphics.classList.remove('is-active');
+};
+const showGraphics = () => {
+document.getElementById('settings-general').style.display = 'none';
+document.getElementById('settings-graphics').style.display = '';
+if (tabGraphics) tabGraphics.classList.add('is-active');
+if (tabGeneral) tabGeneral.classList.remove('is-active');
+};
+if (tabGeneral) tabGeneral.addEventListener('click', showGeneral);
+if (tabGraphics) tabGraphics.addEventListener('click', showGraphics);
+this.graphicsQuality = this.getSavedGraphicsQuality();
+this._perfProfile = this.makePerformanceProfile(this.graphicsQuality);
+window.__trainPerfProfile = this._perfProfile;
+this.syncGraphicsQualityUi();
+document.querySelectorAll('.quality-btn').forEach((btn) => {
+btn.addEventListener('click', (e) => {
+e.stopPropagation();
+this.setGraphicsQuality(btn.getAttribute('data-quality'), { rebuild: true });
+this.syncGraphicsQualityUi();
+});
+});
+const treeToggle = document.getElementById('toggle-tree');
+if (treeToggle) {
+treeToggle.checked = true;
+treeToggle.disabled = true;
+treeToggle.addEventListener('change', () => { treeToggle.checked = true; });
+}
+const textureToggle = document.getElementById('toggle-texture');
+if (textureToggle) textureToggle.addEventListener('change', (e) => {
+worldConfig.texture = e.target.checked;
+if(this.world) this.world.updateGroundMaterial(e.target.checked);
+});
+document.getElementById('draw-distance').addEventListener('input', (e) => {
+e.stopPropagation();
+document.getElementById('draw-dist-val').innerText = e.target.value;
+if(this.camera) { this.camera.far = Number(e.target.value); this.camera.updateProjectionMatrix(); }
+});
+document.getElementById('frame-limit').addEventListener('input', (e) => {
+e.stopPropagation();
+this.frameLimit = Number(e.target.value);
+document.getElementById('fps-val').innerText = this.frameLimit;
+});
+const frameLimitInput = document.getElementById('frame-limit');
+const frameLimitLabel = document.getElementById('fps-val');
+if (frameLimitInput && frameLimitLabel) {
+frameLimitInput.value = String(this.frameLimit);
+frameLimitLabel.innerText = String(this.frameLimit);
+}
+document.getElementById('btn-close-settings').addEventListener('click', () => document.getElementById('settings-overlay').style.display = 'none');
+document.getElementById('btn-restart').addEventListener('click', () => location.reload());
+
+// 초기 볼륨 표시 업데이트
+document.getElementById('vol-val').innerText = Math.round(this._audio.master * 100);
+document.getElementById('nature-val').innerText = Math.round(this._audio.nature * 100);
+document.getElementById('weather-val').innerText = Math.round(this._audio.weather * 100);
+
+this.eventsBound = true;
+},
+
+
+toggleCamera() {
+this.isFirstPerson = !this.isFirstPerson;
+const camTxt = document.getElementById('cam-txt');
+if (camTxt) camTxt.innerText = this.isFirstPerson ? "CAMERA: 1ST PERSON" : "CAMERA: 3RD PERSON";
+if (this.camCtrl) {
+this.camCtrl.targetTheta = 0;
+this.camCtrl.targetPhi = this.isFirstPerson ? Math.PI/2 : Math.PI/2.5;
+}
+},
+
+togglePause() {
+this.isPaused = !this.isPaused;
+const overlay = document.getElementById('pause-overlay');
+if (overlay) overlay.style.display = this.isPaused ? 'flex' : 'none';
+if (this.isPaused) {
+    if (window.gui && window.gui.showToast) window.gui.showToast('Paused. Press Space to resume.', { duration: 2600 });
+} else {
+    this.clock.getDelta();
+    if (window.gui && window.gui.showToast) window.gui.showToast('Resumed.', { duration: 1200 });
+}
+},
+
+setRemoteInput(throttle, brake) {
+const clamp = (v) => Math.max(0, Math.min(1, Number(v) || 0));
+this.remote.active = true;
+this.remote.throttle = clamp(throttle);
+this.remote.brake = clamp(brake);
+},
+
+clearRemoteInput() {
+this.remote.active = false;
+this.remote.throttle = 0;
+this.remote.brake = 0;
+},
+
+setRemoteConnected(isConnected) {
+this.remote.connected = !!isConnected;
+const chip = document.getElementById('hud-conn');
+if (chip) {
+chip.innerText = this.remote.connected ? "Controller: Linked" : "Controller: Offline";
+chip.classList.toggle('is-live', this.remote.connected);
+}
+if (!this.remote.connected) this.clearRemoteInput();
+},
+
+setWeatherMode(mode) {
+const safe = ['sunny','rain','snow','fog'].includes(mode) ? mode : 'sunny';
+this.weatherMode = safe;
+if (envSystem && envSystem.setWeather) envSystem.setWeather(safe);
+if (this.world && this.world.applyWeatherMode) this.world.applyWeatherMode(safe);
+this._syncWeatherSound(safe);
+return safe;
+},
+
+_syncWeatherSound(mode) {
+    if (this._audio && this._audio.htmlMode) {
+        this._updateHtmlAudioVolumes();
+        return;
+    }
+    if (!this._audio || !this._audio.weatherGain) return;
+    const active = (mode === 'rain' || mode === 'snow');
+    this._audio.weatherGain.gain.value = active ? this._audio.weather : 0;
+    if (!active) return;
+    const buffer = this._audio.buffers[mode];
+    if (!buffer) return;
+    if (this._audio.weatherSrc && this._audio.weatherSrc.buffer === buffer) return;
+    if (this._audio.weatherSrc) {
+        try { this._audio.weatherSrc.stop(); } catch (e) {}
+    }
+    const weatherSrc = this._audio.ctx.createBufferSource();
+    weatherSrc.buffer = buffer;
+    weatherSrc.loop = true;
+    weatherSrc.connect(this._audio.weatherFilter);
+    weatherSrc.start();
+    this._audio.weatherSrc = weatherSrc;
+},
+
+rebuildWorldForMap(mode) {
+const prevSpeed = this.train ? this.train.speed : 0;
+const prevDist = this.train ? this.train.dist : 0;
+if (this.train && this.train.mesh && this.scene) this.scene.remove(this.train.mesh);
+if (this.world && this.world.dispose) this.world.dispose();
+
+this.world = new WorldBuilder(this.scene, mode, this.physicsWorld);
+this.world.build();
+if (this.world && this.world.applyWeatherMode) this.world.applyWeatherMode(this.weatherMode);
+
+this.train = new Train(this.scene, this.world.trackCurve);
+this.train.speed = prevSpeed;
+this.train.dist = prevDist;
+},
+
+setMapMode(mode, options = {}) {
+const safe = ['champaign','forest'].includes(mode) ? mode : 'forest';
+const changed = this.mapMode !== safe;
+this.mapMode = safe;
+
+if (!this.world) return safe;
+if (changed && options.rebuild !== false) {
+this.rebuildWorldForMap(safe);
+} else if (this.world.applyMapMode) {
+this.world.applyMapMode(safe);
+}
+return safe;
+},
+
+initTimeControl() {
+const control = document.getElementById('time-control');
+const timeToggle = document.getElementById('time-toggle');
+const timePanel = document.getElementById('time-panel');
+const slider = document.getElementById('time-slider');
+const timeDisplay = document.getElementById('time-display');
+
+const weatherToggle = document.getElementById('weather-toggle');
+const weatherPanel = document.getElementById('weather-panel');
+const weatherDisplay = document.getElementById('weather-display');
+const weatherOptions = document.querySelectorAll('.weather-opt');
+
+const mapToggle = document.getElementById('map-toggle');
+const mapPanel = document.getElementById('map-panel');
+const mapDisplay = document.getElementById('map-display');
+const mapOptions = document.querySelectorAll('.map-opt');
+
+if (!control || !timeToggle || !timePanel || !slider || !timeDisplay) return;
+control.style.display = 'flex';
+
+const closeAllPanels = () => {
+timePanel.classList.remove('open');
+if (weatherPanel) weatherPanel.classList.remove('open');
+if (mapPanel) mapPanel.classList.remove('open');
+};
+const openOnly = (panel) => {
+closeAllPanels();
+if (panel) panel.classList.add('open');
+};
+
+const clampTime = (value) => Math.max(0, Math.min(24, value));
+const formatTime = (value) => {
+let h = Math.floor(value);
+let m = Math.round((value - h) * 60);
+if (m === 60) { h = Math.min(24, h + 1); m = 0; }
+return `${h.toString().padStart(2,'0')}:${m.toString().padStart(2,'0')}`;
+};
+const applyTime = (value) => {
+const safe = clampTime(value);
+this.timeValue = safe;
+envSystem.setTime(safe);
+timeDisplay.innerText = formatTime(safe);
+};
+
+const setWeatherUi = (mode) => {
+const safe = this.setWeatherMode(mode);
+if (weatherDisplay) weatherDisplay.innerText = safe.toUpperCase();
+weatherOptions.forEach((btn) => btn.classList.toggle('is-active', btn.getAttribute('data-weather') === safe));
+};
+const setMapUi = (mode) => {
+const safe = this.setMapMode(mode);
+if (mapDisplay) mapDisplay.innerText = safe.toUpperCase();
+mapOptions.forEach((btn) => btn.classList.toggle('is-active', btn.getAttribute('data-map') === safe));
+};
+
+const initial = Number.isFinite(this.timeValue) ? this.timeValue : 12;
+slider.value = initial.toString();
+applyTime(initial);
+setWeatherUi(this.weatherMode);
+setMapUi(this.mapMode);
+
+slider.addEventListener('input', (e) => applyTime(parseFloat(e.target.value)));
+[timePanel, weatherPanel, mapPanel].forEach((panel) => {
+if (panel) panel.addEventListener('click', (e) => e.stopPropagation());
+});
+
+timeToggle.addEventListener('click', (e) => {
+e.stopPropagation();
+if (timePanel.classList.contains('open')) closeAllPanels(); else openOnly(timePanel);
+});
+if (weatherToggle && weatherPanel) weatherToggle.addEventListener('click', (e) => {
+e.stopPropagation();
+if (weatherPanel.classList.contains('open')) closeAllPanels(); else openOnly(weatherPanel);
+});
+if (mapToggle && mapPanel) mapToggle.addEventListener('click', (e) => {
+e.stopPropagation();
+if (mapPanel.classList.contains('open')) closeAllPanels(); else openOnly(mapPanel);
+});
+
+weatherOptions.forEach((btn) => {
+btn.addEventListener('click', (e) => {
+e.stopPropagation();
+setWeatherUi(btn.getAttribute('data-weather') || 'sunny');
+closeAllPanels();
+});
+});
+mapOptions.forEach((btn) => {
+btn.addEventListener('click', (e) => {
+e.stopPropagation();
+setMapUi(btn.getAttribute('data-map') || 'forest');
+closeAllPanels();
+});
+});
+
+document.addEventListener('click', closeAllPanels);
+},
+
+showInputModal(title, label, hint, defaultValue, callback, suggestions = []) {
+const modal = document.getElementById('input-modal');
+const titleEl = document.getElementById('modal-title');
+const labelEl = document.getElementById('modal-label');
+const hintEl = document.getElementById('modal-hint');
+const inputEl = document.getElementById('modal-input');
+const okBtn = document.getElementById('modal-btn-ok');
+const cancelBtn = document.getElementById('modal-btn-cancel');
+const suggestionsContainer = document.getElementById('modal-suggestions');
+
+titleEl.innerText = title;
+labelEl.innerText = label;
+hintEl.innerText = hint || '';
+inputEl.value = defaultValue || '';
+modal.style.display = 'flex';
+inputEl.focus();
+
+// 추천 버튼 생성
+suggestionsContainer.innerHTML = '';
+if (suggestions && suggestions.length > 0) {
+suggestions.forEach(value => {
+const btn = document.createElement('button');
+btn.innerText = value;
+btn.className = 'suggestion-btn';
+btn.addEventListener('click', () => {
+inputEl.value = value;
+inputEl.focus();
+});
+suggestionsContainer.appendChild(btn);
+});
+}
+
+const handleOk = () => {
+callback(inputEl.value);
+handleCancel();
+};
+const handleCancel = () => {
+modal.style.display = 'none';
+okBtn.removeEventListener('click', handleOk);
+cancelBtn.removeEventListener('click', handleCancel);
+inputEl.removeEventListener('keypress', handleEnter);
+};
+const handleEnter = (e) => {
+if (e.key === 'Enter') handleOk();
+};
+
+okBtn.addEventListener('click', handleOk);
+cancelBtn.addEventListener('click', handleCancel);
+inputEl.addEventListener('keypress', handleEnter);
+},
+
+animate() {
+if(!this.isStarted) return;
+requestAnimationFrame(() => this.animate());
+
+// Frame Limiter
+const now = (performance || Date).now();
+if (this.frameLimit > 0) {
+if (!this._lastFrameTime) this._lastFrameTime = now;
+if (now - this._lastFrameTime < 1000 / this.frameLimit) return;
+this._lastFrameTime = now;
+}
+
+const dt = Math.min(this.clock.getDelta(), 0.1);
+
+const pauseOverlay = document.getElementById('pause-overlay');
+if (pauseOverlay) pauseOverlay.style.display = this.isPaused ? 'flex' : 'none';
+if (this.isPaused) {
+    if (this.physicsWorld) {
+        this.physicsWorld.step(1/60, 0, 3);
+    }
+    if (envSystem) envSystem.update(this.camera ? this.camera.position : null);
+    this.renderer.setRenderTarget(this.renderTarget);
+    this.renderer.render(this.scene, this.camera);
+    this.renderer.setRenderTarget(null);
+    this.postMaterial.uniforms.tDiffuse.value = this.renderTarget.texture;
+    this.postMaterial.uniforms.time.value = now * 0.001;
+    this.renderer.render(this.postScene, this.postCamera);
+    return;
+}
+
+if (this.physicsWorld) {
+    this.physicsWorld.step(1/60, dt, 3);
+}
+
+// Update Environment + Weather
+envSystem.update(this.camera ? this.camera.position : null);
+if (this.world && this.world.update) this.world.update(dt, now * 0.001);
+
+// Train Logic (메디테이션 게임: 부드러운 속도 변화)
+const SPEED_CHANGE_RATE = 1.2; // slower throttle change rate for manual control
+
+const remoteActive = this.remote && this.remote.active;
+const keyboardDriving = this.input.keys['w'] || this.input.keys['s'];
+if (remoteActive && !keyboardDriving) {
+this.input.throttle = this.remote.throttle;
+this.input.brake = this.remote.brake;
+} else {
+// Manual keyboard input always has priority, even while the phone controller is linked.
+if (this.input.keys['w']) {
+this.input.brake = 0;
+this.input.throttle = Math.min(1, this.input.throttle + SPEED_CHANGE_RATE * dt);
+}
+
+if (this.input.keys['s']) {
+// pressing S immediately cancels throttle and applies brake (no overlap)
+this.input.throttle = 0;
+this.input.brake = Math.min(1, this.input.brake + SPEED_CHANGE_RATE * dt * 0.6);
+}
+}
+
+this.train.update(dt, this.input);
+this.camCtrl.update();
+
+// Camera Logic
+const trainPos = this.train.mesh.position.clone();
+const trainQuat = this.train.mesh.quaternion.clone();
+
+if (this.isFirstPerson) {
+this.train.mesh.visible = false;
+const camOffset = new THREE.Vector3(0, 5.0, 5.5).applyQuaternion(trainQuat);
+this.camera.position.copy(trainPos).add(camOffset);
+const lookDir = new THREE.Vector3(Math.sin(this.camCtrl.theta)*Math.sin(this.camCtrl.phi), Math.cos(this.camCtrl.phi), Math.cos(this.camCtrl.theta)*Math.sin(this.camCtrl.phi)).applyQuaternion(trainQuat);
+this.camera.lookAt(this.camera.position.clone().add(lookDir));
+} else {
+this.train.mesh.visible = true;
+const orbitX = this.camCtrl.distance * Math.sin(this.camCtrl.theta) * Math.cos(this.camCtrl.phi);
+const orbitY = this.camCtrl.distance * Math.sin(this.camCtrl.phi);
+const orbitZ = this.camCtrl.distance * Math.cos(this.camCtrl.theta) * Math.cos(this.camCtrl.phi);
+const relativePos = new THREE.Vector3(orbitX, orbitY, -orbitZ).applyQuaternion(trainQuat);
+this.camera.position.copy(trainPos).add(relativePos);
+
+try {
+const groundY = (this.world) ? this.world.getHeight(this.camera.position.x, this.camera.position.z) : -Infinity;
+if (this.camera.position.y < groundY + 2.5) this.camera.position.y = groundY + 2.5;
+} catch(e){}
+this.camera.lookAt(trainPos.x, trainPos.y + 3, trainPos.z);
+}
+
+// Move sun shadow target to train
+if(envSystem.sunLight) {
+envSystem.sunLight.target.position.copy(trainPos);
+envSystem.sunLight.target.updateMatrixWorld();
+// Keep light source relative to train for shadows to work everywhere
+const lightOffset = envSystem.sunLight.position.clone().normalize().multiplyScalar(1000);
+envSystem.sunLight.position.copy(trainPos).add(lightOffset);
+}
+
+// HUD
+document.getElementById('speed-txt').innerText = Math.floor(this.train.speed);
+document.getElementById('throttle-fill').style.width = (this.input.throttle * 100) + '%';
+document.getElementById('brake-fill').style.width = (this.input.brake * 100) + '%';
+
+// Ambient Sound - Meditative Game용 부드러운 사운드
+try {
+const f = this._friction;
+if (f && f.gainNode) {
+const speedFactor = Math.min(1, this.train.speed / 80);
+f.gainNode.gain.value = (f.volume || 0.5) * speedFactor * 0.35;
+f.filter.frequency.value = 150 + this.train.speed * 3;
+}
+const n = this._nature;
+if (n && n.gainNode && n.filter) {
+const baseFrequency = 720 - Math.max(0, Math.min(180, (this.timeValue - 12) * 8));
+n.filter.frequency.value = baseFrequency + Math.sin(now * 0.0006) * 50;
+}
+} catch(e) {}
+
+// 입자 시스템 업데이트
+if (this.particleSystem) {
+this.particleSystem.update(this.camera.position);
+}
+
+// 비네팅 렌더링
+this.renderer.setRenderTarget(this.renderTarget);
+this.renderer.render(this.scene, this.camera);
+this.renderer.setRenderTarget(null);
+this.postMaterial.uniforms.tDiffuse.value = this.renderTarget.texture;
+this.postMaterial.uniforms.time.value = now * 0.001;
+this.renderer.render(this.postScene, this.postCamera);
+}
+};
+
+window.app = app;
+
+
+
+
+
+
+

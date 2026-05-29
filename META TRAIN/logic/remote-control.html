@@ -1,0 +1,382 @@
+﻿const remoteControl = {
+peer: null,
+conn: null,
+isController: false,
+hostId: null,
+rawCode: null,
+codeUsed: false,
+codeTimer: null,
+pingTimer: null,
+reissueTimer: null,
+controllerInputsBound: false,
+lastControllerCode: '',
+controllerConnecting: false,
+codeTtlMs: 120000,
+
+init() {
+const params = new URLSearchParams(location.search);
+const ua = navigator.userAgent || '';
+const isTouch = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
+const deviceMin = Math.min(window.innerWidth, window.innerHeight);
+const isTablet = /\b(?:ipad|tablet|playbook|silk|kindle|android(?!.*mobile)|nexus 7|nexus 10|galaxy tab|tab)\b/i.test(ua) || (isTouch && deviceMin >= 820);
+const isPhone = isTouch && !isTablet && deviceMin < 820;
+this.isController = params.get('controller') === '1' || params.get('mode') === 'controller' || isPhone;
+this.hostId = params.get('host');
+
+if (this.isController) {
+this.initController();
+} else {
+this.initHost();
+}
+},
+
+initHost() {
+const codeEl = document.getElementById('pair-code');
+const statusEl = document.getElementById('pair-status');
+const noPhone = document.getElementById('no-phone');
+if (noPhone) {
+noPhone.addEventListener('click', (e) => {
+e.preventDefault();
+window.desktopBypass = true;
+if (typeof openSeed === 'function') openSeed(true);
+});
+}
+if (!codeEl || !statusEl) return;
+if (typeof Peer === 'undefined') {
+statusEl.innerText = 'Network unavailable';
+return;
+}
+this.initHostPeer();
+},
+
+initHostPeer() {
+this.clearCodeTimer();
+this.conn = null;
+this.codeUsed = false;
+this.rawCode = this.generateCode();
+this.updateHostCode();
+this.updateHostStatus('Code ready');
+this.scheduleCodeExpiry();
+
+const peerId = this.toPeerId(this.rawCode);
+this.peer = new Peer(peerId);
+this.peer.on('open', () => this.updateHostStatus('Code ready'));
+this.peer.on('connection', (conn) => {
+if (this.codeUsed) {
+conn.close();
+return;
+}
+this.attachConn(conn, true);
+});
+this.peer.on('disconnected', () => {
+try { this.peer.reconnect(); } catch (e) {}
+});
+this.peer.on('error', (err) => {
+if (err && err.type === 'unavailable-id') {
+try { this.peer.destroy(); } catch (e) {}
+this.scheduleReissue(250);
+return;
+}
+this.updateHostStatus('Network error');
+});
+},
+
+scheduleReissue(delayMs = 250) {
+if (this.reissueTimer) clearTimeout(this.reissueTimer);
+this.reissueTimer = setTimeout(() => {
+this.reissueTimer = null;
+this.initHostPeer();
+}, delayMs);
+},
+
+scheduleCodeExpiry() {
+this.clearCodeTimer();
+this.codeTimer = setTimeout(() => {
+if (this.codeUsed) return;
+this.updateHostStatus('Code expired');
+try { if (this.peer) this.peer.destroy(); } catch (e) {}
+this.initHostPeer();
+}, this.codeTtlMs);
+},
+
+clearCodeTimer() {
+if (this.codeTimer) {
+clearTimeout(this.codeTimer);
+this.codeTimer = null;
+}
+if (this.reissueTimer) {
+clearTimeout(this.reissueTimer);
+this.reissueTimer = null;
+}
+},
+
+updateHostCode() {
+const codeEl = document.getElementById('pair-code');
+const codeOverlayEl = document.getElementById('pair-code-overlay');
+if (codeEl) codeEl.innerText = this.formatCode(this.rawCode);
+if (codeOverlayEl) codeOverlayEl.innerText = this.formatCode(this.rawCode);
+},
+
+updateHostStatus(msg) {
+const statusEl = document.getElementById('pair-status');
+const statusDisplay = document.getElementById('pair-status-display');
+if (statusEl) statusEl.innerText = msg;
+if (statusDisplay) statusDisplay.innerText = msg;
+},
+
+generateCode() {
+const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+let out = '';
+for (let i = 0; i < 6; i++) out += chars[Math.floor(Math.random() * chars.length)];
+return out;
+},
+
+formatCode(raw) {
+if (!raw) return '--- ---';
+return `${raw.slice(0,3)}-${raw.slice(3,6)}`;
+},
+
+sanitizeCode(input) {
+if (!input) return '';
+const raw = input.toUpperCase().replace(/[^A-Z0-9]/g, '');
+return raw.length === 6 ? raw : '';
+},
+
+toPeerId(code) {
+const raw = this.sanitizeCode(code);
+if (!raw) return code;
+return `trr-${raw.toLowerCase()}`;
+},
+
+initController() {
+const controllerScreen = document.getElementById('controller-screen');
+if (controllerScreen) controllerScreen.classList.add('active');
+this.hideGameUi();
+this.bindControllerSetup();
+
+if (this.hostId) this.connectToHost(this.hostId);
+},
+
+bindControllerSetup() {
+const input = document.getElementById('controller-code');
+const statusEl = document.getElementById('controller-status');
+if (!input) return;
+
+const formatPartialCode = (raw) => {
+if (!raw) return '';
+return raw.length > 3 ? `${raw.slice(0, 3)}-${raw.slice(3)}` : raw;
+};
+
+const autoConnect = () => {
+const raw = String(input.value || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6);
+input.value = formatPartialCode(raw);
+
+if (raw.length < 6) {
+if (statusEl) statusEl.innerText = 'ENTER PAIRING CODE';
+return;
+}
+
+const code = this.sanitizeCode(raw);
+if (!code) {
+if (statusEl) statusEl.innerText = 'INVALID CODE';
+return;
+}
+if (this.controllerConnecting || (this.conn && this.conn.open)) return;
+
+this.lastControllerCode = code;
+this.controllerConnecting = true;
+if (statusEl) statusEl.innerText = 'CONNECTING...';
+this.connectToHost(code);
+};
+
+input.addEventListener('input', autoConnect);
+input.addEventListener('change', autoConnect);
+input.addEventListener('keypress', (e) => {
+if (e.key === 'Enter') {
+e.preventDefault();
+autoConnect();
+}
+});
+},
+
+connectToHost(code) {
+this.hostId = this.toPeerId(code);
+if (this.peer) {
+try { this.peer.destroy(); } catch (e) {}
+}
+this.peer = new Peer();
+this.peer.on('open', () => {
+this.conn = this.peer.connect(this.hostId, { reliable: true });
+this.attachConn(this.conn, false);
+});
+this.peer.on('disconnected', () => {
+try { this.peer.reconnect(); } catch (e) {}
+});
+this.peer.on('error', () => {
+this.controllerConnecting = false;
+const statusEl = document.getElementById('controller-status');
+if (statusEl) statusEl.innerText = 'NETWORK ERROR';
+});
+},
+
+showControllerControls(isConnected) {
+const setup = document.getElementById('controller-setup');
+const controls = document.getElementById('controller-controls');
+if (setup) setup.style.display = isConnected ? 'none' : 'flex';
+if (controls) controls.style.display = isConnected ? 'block' : 'none';
+},
+
+hideGameUi() {
+const ids = ['main-menu', 'seed-selection', 'hud', 'time-control', 'controls-hint', 'mobile-controls'];
+ids.forEach((id) => {
+const el = document.getElementById(id);
+if (el) el.style.display = 'none';
+});
+},
+
+bindControllerInputs() {
+if (this.controllerInputsBound) return;
+this.controllerInputsBound = true;
+
+const handleEl = document.getElementById('ctrl-handle');
+const camBtn = document.getElementById('ctrl-cam');
+const stopBtn = document.getElementById('ctrl-stop');
+
+let throttle = 0;
+let brake = 0;
+const sendInput = () => {
+if (this.conn && this.conn.open) this.conn.send({ type: 'input', throttle, brake });
+};
+
+if (handleEl) {
+handleEl.value = '0';
+handleEl.addEventListener('input', (e) => {
+const v = Number(e.target.value) || 0;
+const dead = 6;
+if (v > dead) {
+throttle = Math.min(1, v / 100);
+brake = 0;
+} else if (v < -dead) {
+throttle = 0;
+brake = Math.min(1, Math.abs(v) / 100);
+} else {
+throttle = 0;
+brake = 0;
+}
+sendInput();
+});
+}
+
+if (camBtn) {
+camBtn.addEventListener('click', () => {
+if (this.conn && this.conn.open) this.conn.send({ type: 'cam' });
+});
+}
+
+if (stopBtn) {
+stopBtn.addEventListener('click', () => {
+throttle = 0;
+brake = 1;
+if (handleEl) handleEl.value = '-100';
+if (this.conn && this.conn.open) this.conn.send({ type: 'stop' });
+});
+}
+},
+
+startPing() {
+this.stopPing();
+this.pingTimer = setInterval(() => {
+if (this.conn && this.conn.open) this.conn.send({ type: 'ping' });
+}, 5000);
+},
+
+stopPing() {
+if (this.pingTimer) {
+clearInterval(this.pingTimer);
+this.pingTimer = null;
+}
+},
+
+attachConn(conn, isHost) {
+if (isHost) this.conn = conn;
+const statusEl = isHost ? document.getElementById('pair-status') : document.getElementById('controller-status');
+
+conn.on('open', () => {
+if (isHost) {
+this.codeUsed = true;
+this.clearCodeTimer();
+this.updateHostStatus('Code used');
+if (typeof openSeed === 'function' && typeof app !== 'undefined' && !app.isStarted) openSeed(true);
+this.sendHostState();
+} else {
+this.controllerConnecting = false;
+if (statusEl) statusEl.innerText = 'CONNECTED';
+this.showControllerControls(true);
+this.bindControllerInputs();
+this.startPing();
+}
+if (window.app && app.setRemoteConnected) app.setRemoteConnected(true);
+});
+
+conn.on('close', () => {
+if (isHost) {
+this.updateHostStatus('Code used');
+this.conn = null;
+} else {
+this.controllerConnecting = false;
+this.lastControllerCode = '';
+if (statusEl) statusEl.innerText = 'DISCONNECTED';
+this.showControllerControls(false);
+this.stopPing();
+this.conn = null;
+}
+if (window.app && app.setRemoteConnected) app.setRemoteConnected(false);
+});
+
+conn.on('error', () => {
+if (!isHost) this.controllerConnecting = false;
+if (statusEl) statusEl.innerText = 'CONNECTION ERROR';
+});
+
+if (isHost) {
+conn.on('data', (data) => this.handleHostData(data));
+} else {
+conn.on('data', (data) => this.handleControllerData(data));
+}
+},
+
+sendHostState() {
+if (!this.conn || !this.conn.open) return;
+const started = !!(window.app && app.isStarted);
+this.conn.send({ type: 'state', started });
+},
+
+notifyGameStarted() {
+this.sendHostState();
+},
+
+handleControllerData(data) {
+if (!data || data.type !== 'state') return;
+const statusEl = document.getElementById('controller-status');
+if (statusEl && data.started) statusEl.innerText = 'CONNECTED';
+},
+
+handleHostData(data) {
+if (!window.app || !data) return;
+if (data.type === 'input') app.setRemoteInput(data.throttle, data.brake);
+if (data.type === 'cam') app.toggleCamera();
+if (data.type === 'stop') app.setRemoteInput(0, 1);
+if (data.type === 'ping') {
+// keepalive only
+}
+}
+};
+
+window.remoteControl = remoteControl;
+window.addEventListener('DOMContentLoaded', () => remoteControl.init());
+
+
+
+
+
+

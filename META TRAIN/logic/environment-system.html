@@ -1,0 +1,383 @@
+﻿class EnvironmentSystem {
+    constructor() {
+        this.sunLight = null;
+        this.hemiLight = null;
+        this.ambientLight = null;
+        this.scene = null;
+        this.renderer = null;
+        this.stars = null;
+        this.sunMesh = null;
+        this.sunGlow = null;
+        this.timeOfDay = 12;
+        this.weatherMode = 'sunny';
+        this.weatherMesh = null;
+        this.weatherVelocities = [];
+        this.weatherArea = 900;
+        this.clouds = [];
+        this.cloudVelocities = [];
+        this.cloudArea = 1600;
+        this.cloudTexture = null;
+        this.profile = null;
+        this._colors = {
+            currentSky: new THREE.Color(),
+            currentFog: new THREE.Color(),
+            endSky: new THREE.Color(),
+            endFog: new THREE.Color(),
+            weatherSky: new THREE.Color(),
+            weatherFog: new THREE.Color(),
+            weatherTint: new THREE.Color(),
+            sunColor: new THREE.Color(),
+            sunWarm: new THREE.Color(0xffedc4),
+            white: new THREE.Color(0xffffff),
+            cloudTint: new THREE.Color(),
+            cloudWarm: new THREE.Color(0xffe8d0),
+            cloudCool: new THREE.Color(0xdfefff),
+            groundWarm: new THREE.Color(0xfff0e0),
+            hemiGround: new THREE.Color()
+        };
+        this._sunPos = new THREE.Vector3();
+    }
+
+    init(scene, renderer) {
+        this.scene = scene;
+        this.renderer = renderer;
+        this.profile = window.__trainPerfProfile || {};
+
+        // 기본 조명 생성
+        this.hemiLight = new THREE.HemisphereLight(0xfff5df, 0xd6edff, 0.72);
+        scene.add(this.hemiLight);
+
+        this.ambientLight = new THREE.AmbientLight(0xffffff, 0.22);
+        scene.add(this.ambientLight);
+
+        this.sunLight = new THREE.DirectionalLight(0xffffff, 1.0);
+        this.sunLight.castShadow = true;
+        const shadowMapSize = this.profile.shadowMapSize || 4096;
+        this.sunLight.shadow.mapSize.width = shadowMapSize;
+        this.sunLight.shadow.mapSize.height = shadowMapSize;
+        this.sunLight.shadow.camera.near = 0.5;
+        this.sunLight.shadow.camera.far = 7000;
+        const d = 720;
+        this.sunLight.shadow.camera.left = -d;
+        this.sunLight.shadow.camera.right = d;
+        this.sunLight.shadow.camera.top = d;
+        this.sunLight.shadow.camera.bottom = -d;
+        this.sunLight.shadow.radius = 4;
+        this.sunLight.shadow.bias = -0.0005;
+        scene.add(this.sunLight);
+
+        // Visible sun (mesh + glow)
+        const sunSegments = this.profile.lowSpec ? 16 : 24;
+        this.sunMesh = new THREE.Mesh(
+            new THREE.SphereGeometry(80, sunSegments, sunSegments),
+            new THREE.MeshBasicMaterial({ color: 0xfff2c2 })
+        );
+        this.sunGlow = new THREE.Sprite(new THREE.SpriteMaterial({
+            map: this._makeGlowTexture(),
+            color: 0xfff1c1,
+            transparent: true,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false
+        }));
+        this.sunGlow.scale.set(760, 760, 1);
+        scene.add(this.sunMesh);
+        scene.add(this.sunGlow);
+
+        // 별 (밤에만 보임)
+        this.createStars();
+        this.createClouds();
+    }
+
+    createStars() {
+        const geom = new THREE.BufferGeometry();
+        const count = this.profile && this.profile.lowSpec ? 900 : 1400;
+        const pos = [];
+        for(let i=0; i<count; i++) {
+            const x = (Math.random()-0.5)*10000;
+            const y = Math.random()*5000 + 1000;
+            const z = (Math.random()-0.5)*10000;
+            pos.push(x,y,z);
+        }
+        geom.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+        this.stars = new THREE.Points(geom, new THREE.PointsMaterial({color:0xffffff, size: 6, transparent:true, opacity:0}));
+        this.scene.add(this.stars);
+    }
+
+    createClouds() {
+        this.cloudTexture = this._makeCloudTexture();
+        this.cloudTexture.minFilter = THREE.LinearMipMapLinearFilter;
+        this.cloudTexture.magFilter = THREE.LinearFilter;
+        this.cloudTexture.anisotropy = this.profile && this.profile.lowSpec ? 1 : 4;
+        const count = 12;
+        for (let i = 0; i < count; i++) {
+            const mat = new THREE.SpriteMaterial({
+                map: this.cloudTexture,
+                transparent: true,
+                opacity: 0.42 + Math.random() * 0.24,
+                depthWrite: false,
+                color: new THREE.Color(0xffffff)
+            });
+            const sprite = new THREE.Sprite(mat);
+            const scale = 900 + Math.random() * 600;
+            sprite.scale.set(scale, scale * 0.56, 1);
+            sprite.position.set(
+                (Math.random() - 0.5) * this.cloudArea,
+                1450 + Math.random() * 500,
+                (Math.random() - 0.5) * this.cloudArea * 0.7
+            );
+            sprite.renderOrder = 1;
+            this.clouds.push(sprite);
+            this.scene.add(sprite);
+            this.cloudVelocities.push({
+                x: (Math.random() * 0.32 + 0.04) * (Math.random() < 0.5 ? -1 : 1),
+                z: (Math.random() * 0.12 + 0.02) * (Math.random() < 0.5 ? -1 : 1)
+            });
+        }
+    }
+
+    setTime(hoursFloat) {
+        const safe = Number.isFinite(hoursFloat) ? hoursFloat : 12;
+        this.timeOfDay = Math.max(0, Math.min(24, safe));
+    }
+
+    getTime() {
+        const floatTime = Number.isFinite(this.timeOfDay) ? this.timeOfDay : 12;
+        let h = Math.floor(floatTime);
+        let m = Math.round((floatTime - h) * 60);
+        if (m === 60) { h = Math.min(24, h + 1); m = 0; }
+        return { h, m, floatTime };
+    }
+
+    setWeather(mode) {
+        const safe = ['sunny', 'rain', 'snow', 'fog'].includes(mode) ? mode : 'sunny';
+        if (this.weatherMode === safe) return;
+        this.weatherMode = safe;
+        this._clearWeather();
+
+        if (safe === 'rain' || safe === 'snow') {
+            const count = this.profile && this.profile.lowSpec
+                ? (safe === 'rain' ? 1100 : 850)
+                : (safe === 'rain' ? 1700 : 1300);
+            const positions = [];
+            const velocities = [];
+            for (let i = 0; i < count; i++) {
+                positions.push(
+                    (Math.random() - 0.5) * this.weatherArea,
+                    Math.random() * 460 + 40,
+                    (Math.random() - 0.5) * this.weatherArea
+                );
+                velocities.push(safe === 'rain'
+                    ? { x: (Math.random() - 0.5) * 0.2, y: -8 - Math.random() * 9, z: (Math.random() - 0.5) * 0.2 }
+                    : { x: (Math.random() - 0.5) * 0.35, y: -0.7 - Math.random() * 1.1, z: (Math.random() - 0.5) * 0.35 }
+                );
+            }
+
+            const geom = new THREE.BufferGeometry();
+            geom.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+            const mat = new THREE.PointsMaterial({
+                color: safe === 'rain' ? 0xbad8ff : 0xffffff,
+                size: safe === 'rain' ? 1.8 : 3.8,
+                transparent: true,
+                opacity: safe === 'rain' ? 0.65 : 0.9
+            });
+            this.weatherMesh = new THREE.Points(geom, mat);
+            this.weatherVelocities = velocities;
+            this.scene.add(this.weatherMesh);
+        }
+    }
+
+    _clearWeather() {
+        if (this.weatherMesh) {
+            this.scene.remove(this.weatherMesh);
+            if (this.weatherMesh.geometry) this.weatherMesh.geometry.dispose();
+            if (this.weatherMesh.material) this.weatherMesh.material.dispose();
+            this.weatherMesh = null;
+        }
+        this.weatherVelocities = [];
+    }
+
+    update(cameraPos = null) {
+        const { h, m, floatTime } = this.getTime();
+
+        const keyframes = [
+            { t: 0,  sky: 0x071026, fog: 0x080816, sunInt: 0.0, ambInt: 0.12, stars: 1 },
+            { t: 5,  sky: 0x0f2740, fog: 0x182438, sunInt: 0.0, ambInt: 0.18, stars: 0.8 },
+            { t: 6,  sky: 0xffd6b8, fog: 0xffeadf, sunInt: 0.25, ambInt: 0.36, stars: 0.08 },
+            { t: 8,  sky: 0xaed9ff, fog: 0xdceefd, sunInt: 0.66, ambInt: 0.78, stars: 0 },
+            { t: 12, sky: 0x7fbaff, fog: 0xeaf6ff, sunInt: 0.8, ambInt: 0.85, stars: 0 },
+            { t: 17, sky: 0xaed9ff, fog: 0xffeedf, sunInt: 0.66, ambInt: 0.75, stars: 0 },
+            { t: 18.5,sky: 0xffb48a,fog: 0xffe4d6, sunInt: 0.38, ambInt: 0.5, stars: 0.15 },
+            { t: 20, sky: 0x1b2b4a, fog: 0x0d1530, sunInt: 0.0, ambInt: 0.2, stars: 0.85 },
+            { t: 24, sky: 0x071026, fog: 0x080816, sunInt: 0.0, ambInt: 0.12, stars: 1 }
+        ];
+
+        let start = keyframes[0], end = keyframes[keyframes.length-1];
+        for (let i = 0; i < keyframes.length - 1; i++) {
+            if (floatTime >= keyframes[i].t && floatTime < keyframes[i+1].t) {
+                start = keyframes[i];
+                end = keyframes[i+1];
+                break;
+            }
+        }
+
+        const colors = this._colors;
+        const progress = (floatTime - start.t) / (end.t - start.t);
+        const currentSky = colors.currentSky.set(start.sky).lerp(colors.endSky.set(end.sky), progress);
+        const currentFog = colors.currentFog.set(start.fog).lerp(colors.endFog.set(end.fog), progress);
+        const currentSunInt = THREE.MathUtils.lerp(start.sunInt, end.sunInt, progress);
+        const currentAmbInt = THREE.MathUtils.lerp(start.ambInt, end.ambInt, progress);
+        const currentStarOp = THREE.MathUtils.lerp(start.stars, end.stars, progress);
+
+        const weatherPreset = {
+            sunny: { skyTint: 0x8fc5ff, skyMix: 0.0, fogTint: 0xeaf6ff, fogMix: 0.0, fogAdd: 0.0, sunMul: 1.0, hemiMul: 1.0, ambMul: 1.0, groundFogMix: 0.0 },
+            rain: { skyTint: 0x69788c, skyMix: 0.56, fogTint: 0x9eafc0, fogMix: 0.52, fogAdd: 0.00024, sunMul: 0.42, hemiMul: 0.74, ambMul: 0.82, groundFogMix: 0.08 },
+            snow: { skyTint: 0xd0dbe7, skyMix: 0.42, fogTint: 0xe6edf7, fogMix: 0.57, fogAdd: 0.00028, sunMul: 0.58, hemiMul: 0.9, ambMul: 0.96, groundFogMix: 0.13 },
+            fog: { skyTint: 0xc4ced9, skyMix: 0.68, fogTint: 0xdbe1e8, fogMix: 0.76, fogAdd: 0.00044, sunMul: 0.5, hemiMul: 0.82, ambMul: 0.9, groundFogMix: 0.2 }
+        };
+        const wp = weatherPreset[this.weatherMode] || weatherPreset.sunny;
+        const weatherSky = colors.weatherSky.copy(currentSky).lerp(colors.weatherTint.set(wp.skyTint), wp.skyMix);
+        const weatherFog = colors.weatherFog.copy(currentFog).lerp(colors.weatherTint.set(wp.fogTint), wp.fogMix);
+
+        this.scene.background = weatherSky;
+        this.scene.fog.color = weatherFog;
+        this.scene.fog.density = 0.00018 + wp.fogAdd;
+
+        const sunriseGlow = Math.max(0, 1 - Math.abs(floatTime - 6) / 2.0);
+        const sunsetGlow = Math.max(0, 1 - Math.abs(floatTime - 18) / 2.0);
+        const goldenHour = Math.max(sunriseGlow, sunsetGlow);
+        const sunPower = currentSunInt * wp.sunMul * (1 + goldenHour * 0.28);
+        const sunColor = colors.sunColor.copy(colors.sunWarm).lerp(colors.white, Math.min(1, currentSunInt + 0.14));
+
+        this.sunLight.intensity = sunPower;
+        this.sunLight.color.copy(sunColor);
+        this.hemiLight.intensity = currentAmbInt * wp.hemiMul;
+        this.ambientLight.intensity = (0.08 + currentAmbInt * 0.35) * wp.ambMul;
+        this.hemiLight.groundColor.copy(colors.hemiGround.copy(colors.groundWarm).lerp(weatherFog, 0.25 + wp.groundFogMix));
+
+        if (this.sunMesh) this.sunMesh.material.color.copy(sunColor);
+        if (this.sunGlow) this.sunGlow.material.color.copy(sunColor);
+        if(this.stars) this.stars.material.opacity = currentStarOp;
+
+        const angle = ((floatTime - 6) / 14) * Math.PI;
+        const isDay = (floatTime > 5.5 && floatTime < 19.5);
+        if (isDay) {
+            const r = 3000;
+            this.sunLight.position.set(Math.cos(angle) * -r, Math.sin(angle) * r, 500);
+        } else {
+            this.sunLight.position.set(0, -1000, 0);
+        }
+
+        if (this.sunMesh && this.sunGlow) {
+            this.sunMesh.visible = isDay;
+            this.sunGlow.visible = isDay;
+            if (isDay) {
+                const sunPos = this._sunPos.copy(this.sunLight.position).setLength(3200);
+                this.sunMesh.position.copy(sunPos);
+                this.sunGlow.position.copy(sunPos);
+                this.sunGlow.material.opacity = 0.28 + goldenHour * 0.5 + currentSunInt * 0.22;
+                const glowScale = 760 + goldenHour * 240;
+                this.sunGlow.scale.set(glowScale, glowScale, 1);
+            } else {
+                this.sunGlow.material.opacity = 0;
+            }
+        }
+
+        if (this.clouds.length) {
+            const cloudTint = colors.cloudTint.set(0xffffff);
+            const middayBlend = Math.max(0, Math.min(1, (floatTime - 8) / 5));
+            const warmBlend = Math.max(0, Math.max(sunriseGlow, sunsetGlow));
+            cloudTint.lerp(colors.cloudWarm, warmBlend * 0.8);
+            cloudTint.lerp(colors.cloudCool, 1 - warmBlend);
+            const cloudOpacity = 0.4 + Math.min(0.4, currentSunInt * 0.6) + warmBlend * 0.12;
+            for (let i = 0; i < this.clouds.length; i++) {
+                const cloud = this.clouds[i];
+                const velocity = this.cloudVelocities[i];
+                cloud.position.x += velocity.x;
+                cloud.position.z += velocity.z;
+                cloud.material.color.copy(cloudTint);
+                cloud.material.opacity = cloudOpacity * (0.8 + (Math.sin((i + floatTime) * 0.4) * 0.08));
+                if (cameraPos) {
+                    if (Math.abs(cloud.position.x - cameraPos.x) > this.cloudArea * 0.6) {
+                        cloud.position.x = cameraPos.x + -Math.sign(cloud.position.x - cameraPos.x) * this.cloudArea * 0.55;
+                    }
+                    if (Math.abs(cloud.position.z - cameraPos.z) > this.cloudArea * 0.6) {
+                        cloud.position.z = cameraPos.z + -Math.sign(cloud.position.z - cameraPos.z) * this.cloudArea * 0.55;
+                    }
+                }
+            }
+        }
+
+        if (this.weatherMesh && cameraPos) {
+            const arr = this.weatherMesh.geometry.attributes.position.array;
+            const area = this.weatherArea;
+            for (let i = 0; i < this.weatherVelocities.length; i++) {
+                const idx = i * 3;
+                const v = this.weatherVelocities[i];
+                arr[idx] += v.x;
+                arr[idx + 1] += v.y;
+                arr[idx + 2] += v.z;
+
+                if (arr[idx + 1] < cameraPos.y - 20) {
+                    arr[idx] = cameraPos.x + (Math.random() - 0.5) * area;
+                    arr[idx + 1] = cameraPos.y + 360 + Math.random() * 140;
+                    arr[idx + 2] = cameraPos.z + (Math.random() - 0.5) * area;
+                }
+                if (Math.abs(arr[idx] - cameraPos.x) > area * 0.58) arr[idx] = cameraPos.x + (Math.random() - 0.5) * area;
+                if (Math.abs(arr[idx + 2] - cameraPos.z) > area * 0.58) arr[idx + 2] = cameraPos.z + (Math.random() - 0.5) * area;
+            }
+            this.weatherMesh.geometry.attributes.position.needsUpdate = true;
+        }
+    }
+
+    _makeGlowTexture() {
+        const size = 128;
+        const canvas = document.createElement('canvas');
+        canvas.width = size;
+        canvas.height = size;
+        const ctx = canvas.getContext('2d');
+        const grad = ctx.createRadialGradient(size / 2, size / 2, 8, size / 2, size / 2, size / 2);
+        grad.addColorStop(0, 'rgba(255, 244, 200, 1)');
+        grad.addColorStop(0.4, 'rgba(255, 232, 160, 0.55)');
+        grad.addColorStop(1, 'rgba(255, 220, 120, 0)');
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, 0, size, size);
+        const texture = new THREE.CanvasTexture(canvas);
+        texture.encoding = THREE.sRGBEncoding;
+        return texture;
+    }
+
+    _makeCloudTexture() {
+        const size = (this.profile && this.profile.textureSize) || 512;
+        const canvas = document.createElement('canvas');
+        canvas.width = size;
+        canvas.height = size;
+        const ctx = canvas.getContext('2d');
+        ctx.clearRect(0, 0, size, size);
+        const gradient = ctx.createRadialGradient(size * 0.5, size * 0.45, size * 0.08, size * 0.5, size * 0.5, size * 0.55);
+        gradient.addColorStop(0, 'rgba(255,255,255,0.95)');
+        gradient.addColorStop(0.4, 'rgba(240,245,255,0.55)');
+        gradient.addColorStop(1, 'rgba(240,245,255,0)');
+        ctx.fillStyle = gradient;
+        ctx.fillRect(0, 0, size, size);
+        for (let i = 0; i < 12; i++) {
+            const radius = size * (0.08 + Math.random() * 0.18);
+            const x = size * (0.2 + Math.random() * 0.6);
+            const y = size * (0.2 + Math.random() * 0.6);
+            const g = ctx.createRadialGradient(x, y, radius * 0.1, x, y, radius);
+            g.addColorStop(0, `rgba(255,255,255,${0.4 + Math.random() * 0.25})`);
+            g.addColorStop(0.5, 'rgba(255,255,255,0.15)');
+            g.addColorStop(1, 'rgba(255,255,255,0)');
+            ctx.fillStyle = g;
+            ctx.beginPath();
+            ctx.arc(x, y, radius, 0, Math.PI * 2);
+            ctx.fill();
+        }
+        const texture = new THREE.CanvasTexture(canvas);
+        texture.encoding = THREE.sRGBEncoding;
+        texture.needsUpdate = true;
+        return texture;
+    }
+}
+
+const envSystem = new EnvironmentSystem();
+

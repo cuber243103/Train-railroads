@@ -1,0 +1,384 @@
+﻿class Train {
+    constructor(scene, curve) {
+        this.curve = curve; this.speed = 0; this.dist = 0; this.verticalVelocity = 0;
+        this.derailed = false;
+        this.derailTimer = 0;
+        this.physicsBody = null;
+        this.lastRadius = 1e6;
+        this.mesh = new THREE.Group();
+        this._scratch = {
+            pos: new THREE.Vector3(),
+            tangent: new THREE.Vector3(),
+            forwardDir: new THREE.Vector3(),
+            worldUp: new THREE.Vector3(0, 1, 0),
+            right: new THREE.Vector3(),
+            p1: new THREE.Vector3(),
+            p2: new THREE.Vector3(),
+            p3: new THREE.Vector3(),
+            v1: new THREE.Vector3(),
+            v2: new THREE.Vector3(),
+            cross: new THREE.Vector3(),
+            correctedUp: new THREE.Vector3(),
+            newUp: new THREE.Vector3(),
+            newRight: new THREE.Vector3(),
+            mat: new THREE.Matrix4()
+        };
+
+        const bodyMat = new THREE.MeshStandardMaterial({ color: 0xf3f5f8, roughness: 0.32, metalness: 0.18 });
+        const trimMat = new THREE.MeshStandardMaterial({ color: 0x1b1f28, roughness: 0.35, metalness: 0.35 });
+        const metalMat = new THREE.MeshStandardMaterial({ color: 0x2a2f36, roughness: 0.28, metalness: 0.8 });
+        const windowMat = new THREE.MeshStandardMaterial({ color: 0x9fb7ff, metalness: 0.1, roughness: 0.15, transparent: true, opacity: 0.85 });
+
+        // Main body
+        const body = new THREE.Mesh(new THREE.BoxGeometry(3.8, 4.6, 19.5), bodyMat);
+        body.position.y = 2.6;
+        body.castShadow = true;
+        body.receiveShadow = true;
+        this.mesh.add(body);
+
+        // Lower chassis
+        const chassis = new THREE.Mesh(new THREE.BoxGeometry(4.1, 1.1, 20.5), metalMat);
+        chassis.position.y = 1.05;
+        chassis.castShadow = true;
+        this.mesh.add(chassis);
+
+        // Roof
+        const roof = new THREE.Mesh(new THREE.BoxGeometry(3.9, 0.9, 19.6), new THREE.MeshStandardMaterial({ color: 0x1f232a, roughness: 0.4, metalness: 0.35 }));
+        roof.position.y = 5.1;
+        roof.castShadow = true;
+        this.mesh.add(roof);
+
+        // Front and rear bumpers
+        const frontBumper = new THREE.Mesh(new THREE.BoxGeometry(3.9, 0.5, 0.6), metalMat);
+        frontBumper.position.set(0, 1.2, 9.9);
+        this.mesh.add(frontBumper);
+
+        const rearBumper = new THREE.Mesh(new THREE.BoxGeometry(3.9, 0.5, 0.6), metalMat);
+        rearBumper.position.set(0, 1.2, -9.9);
+        this.mesh.add(rearBumper);
+
+        // Windows (side)
+        for(let i = 0; i < 4; i++) {
+            const win = new THREE.Mesh(new THREE.BoxGeometry(0.06, 1.6, 3.3), windowMat);
+            win.position.set(-1.92, 3.0, -6.5 + i*4.5);
+            this.mesh.add(win);
+        }
+        for(let i = 0; i < 4; i++) {
+            const win = new THREE.Mesh(new THREE.BoxGeometry(0.06, 1.6, 3.3), windowMat);
+            win.position.set(1.92, 3.0, -6.5 + i*4.5);
+            this.mesh.add(win);
+        }
+
+        // Front/Rear windows
+        const frontWin = new THREE.Mesh(new THREE.BoxGeometry(3.1, 2.0, 0.06), windowMat);
+        frontWin.position.set(0, 3.2, 9.76);
+        this.mesh.add(frontWin);
+        const rearWin = new THREE.Mesh(new THREE.BoxGeometry(3.1, 2.0, 0.06), windowMat);
+        rearWin.position.set(0, 3.2, -9.76);
+        this.mesh.add(rearWin);
+
+        
+        // Clean side stripe
+        const stripe = new THREE.Mesh(new THREE.BoxGeometry(4.0, 0.22, 18.6), trimMat);
+        stripe.position.y = 3.6;
+        this.mesh.add(stripe);
+        // Side trims
+        const trimLeft = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.4, 19), trimMat);
+        trimLeft.position.set(-1.95, 1.9, 0);
+        this.mesh.add(trimLeft);
+        const trimRight = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.4, 19), trimMat);
+        trimRight.position.set(1.95, 1.9, 0);
+        this.mesh.add(trimRight);
+
+        // Couplers
+        const couplerFront = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.4, 1.4), metalMat);
+        couplerFront.position.set(0, 1.1, 10.4);
+        this.mesh.add(couplerFront);
+        const couplerRear = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.4, 1.4), metalMat);
+        couplerRear.position.set(0, 1.1, -10.4);
+        this.mesh.add(couplerRear);
+
+        // Headlights
+        const headMat = new THREE.MeshStandardMaterial({ color: 0xfff1c8, emissive: 0xffe2b0, emissiveIntensity: 1.4, roughness: 0.4 });
+        const headL = new THREE.Mesh(new THREE.CircleGeometry(0.35, 16), headMat);
+        headL.position.set(-0.8, 2.4, 9.95);
+        this.mesh.add(headL);
+        const headR = new THREE.Mesh(new THREE.CircleGeometry(0.35, 16), headMat);
+        headR.position.set(0.8, 2.4, 9.95);
+        this.mesh.add(headR);
+
+        const spotL = new THREE.SpotLight(0xfff0c8, 2.2, 200, Math.PI/10, 0.45, 1);
+        spotL.position.set(-0.8, 2.4, 9.9);
+        spotL.target.position.set(-0.8, 2.0, 40);
+        this.mesh.add(spotL);
+        this.mesh.add(spotL.target);
+
+        const spotR = new THREE.SpotLight(0xfff0c8, 2.2, 200, Math.PI/10, 0.45, 1);
+        spotR.position.set(0.8, 2.4, 9.9);
+        spotR.target.position.set(0.8, 2.0, 40);
+        this.mesh.add(spotR);
+        this.mesh.add(spotR.target);
+
+        // Bogies and wheels
+        this._addBogie(-6.5, metalMat);
+        this._addBogie(6.5, metalMat);
+
+        scene.add(this.mesh);
+    }
+
+    _addBogie(zPos, metalMat) {
+        const bogie = new THREE.Group();
+        const frame = new THREE.Mesh(new THREE.BoxGeometry(3.3, 0.6, 4.8), metalMat);
+        frame.position.y = 0.7;
+        bogie.add(frame);
+
+        const wheelMat = new THREE.MeshStandardMaterial({ color: 0x1f1f1f, roughness: 0.4, metalness: 0.7 });
+        const wheelGeom = new THREE.CylinderGeometry(0.75, 0.75, 0.45, 16);
+        const axleGeom = new THREE.CylinderGeometry(0.12, 0.12, 3.8, 10);
+        const axleOffsets = [-1.6, 0, 1.6];
+
+        axleOffsets.forEach((z) => {
+            const axle = new THREE.Mesh(axleGeom, metalMat);
+            axle.rotation.z = Math.PI / 2;
+            axle.position.set(0, 0.55, z);
+            bogie.add(axle);
+
+            const leftWheel = new THREE.Mesh(wheelGeom, wheelMat);
+            leftWheel.rotation.z = Math.PI / 2;
+            leftWheel.position.set(-1.9, 0.55, z);
+            bogie.add(leftWheel);
+
+            const rightWheel = new THREE.Mesh(wheelGeom, wheelMat);
+            rightWheel.rotation.z = Math.PI / 2;
+            rightWheel.position.set(1.9, 0.55, z);
+            bogie.add(rightWheel);
+        });
+
+        bogie.position.set(0, 0.3, zPos);
+        this.mesh.add(bogie);
+    }
+
+    derail() {
+        if (this.derailed) return;
+        this.derailed = true;
+        
+        const mass = 30000; // 30 tons
+        // 실제 기차의 외관에 맞춘 박스 크기 (너비 4.1, 높이 5.45, 길이 20.5)
+        const shape = new CANNON.Box(new CANNON.Vec3(2.05, 2.725, 10.25));
+        this.physicsBody = new CANNON.Body({ 
+            mass: mass,
+            linearDamping: 0.15,
+            angularDamping: 0.3
+        });
+        
+        // 박스의 중심이 기차의 시각적 중심(높이 약 2.825m)에 오도록 오프셋 적용
+        this.physicsBody.addShape(shape, new CANNON.Vec3(0, 2.825, 0));
+        
+        this.physicsBody.position.copy(this.mesh.position);
+        this.physicsBody.quaternion.copy(this.mesh.quaternion);
+        
+        const s = this._scratch;
+        const forward = s.forwardDir.clone().applyQuaternion(this.mesh.quaternion).normalize();
+        const speed_mps = this.speed / 3.6;
+        this.physicsBody.velocity.set(
+            forward.x * speed_mps,
+            forward.y * speed_mps,
+            forward.z * speed_mps
+        );
+
+        // 속도에 따른 충격량 강화 (고속일수록 더 멀리, 더 격하게 튕김)
+        const speedScale = Math.max(1, this.speed / 60);
+        const centrifugalMagnitude = (speed_mps * speed_mps) / (this.lastRadius || 1000);
+        const centrifugalDir = s.right.clone().normalize();
+        
+        // 원심력 + 관성력을 속도에 비례하여 적용
+        this.physicsBody.velocity.x += centrifugalDir.x * centrifugalMagnitude * 2.0 * speedScale;
+        this.physicsBody.velocity.y += (centrifugalDir.y * centrifugalMagnitude * 2.0 + 2.0) * speedScale;
+        this.physicsBody.velocity.z += centrifugalDir.z * centrifugalMagnitude * 2.0 * speedScale;
+        
+        // 회전 모멘텀도 속도에 비례 (고속 탈선 시 더 많이 구름)
+        this.physicsBody.angularVelocity.set(
+            (Math.random() - 0.5) * 1.5 * speedScale,
+            (Math.random() - 0.5) * 2.0 * speedScale,
+            (Math.random() - 0.5) * 3.0 * speedScale
+        );
+
+        if (window.app && window.app.physicsWorld) {
+            window.app.physicsWorld.addBody(this.physicsBody);
+            
+            // 이스터에그 체크: 150km/h 이하에서 발생한 경우 또는 특정 조건
+            if (this.speed < 150 && this._isEasterEggDerail) {
+                if (window.app.unlockEasterEggBadge) window.app.unlockEasterEggBadge();
+            }
+            
+            // 땅과 열차 사이의 마찰력/반발력 조절
+            const mat1 = this.physicsBody.material || new CANNON.Material('train');
+            this.physicsBody.material = mat1;
+            const mat2 = (window.app.world && window.app.world.groundBody) ? window.app.world.groundBody.material : null;
+            if (mat2) {
+                const contact = new CANNON.ContactMaterial(mat1, mat2, {
+                    friction: 0.5,
+                    restitution: 0.1, // 반발력 낮춤 (덜 튕김)
+                    contactEquationStiffness: 1e7,
+                    contactEquationRelaxation: 3
+                });
+                window.app.physicsWorld.addContactMaterial(contact);
+            }
+        }
+
+        // 탈선 후 10초 뒤 리스타트 토스트
+        setTimeout(() => {
+            if (window.gui && window.gui.showToast) {
+                window.gui.showToast("열차가 탈선했습니다. 다시 시작하시겠습니까?", {
+                    buttonText: "RESTART",
+                    onButtonClick: () => location.reload(),
+                    duration: 0
+                });
+            }
+        }, 10000);
+    }
+
+    update(dt, input) {
+        if (this.derailed) {
+            if (this.physicsBody) {
+                this.mesh.position.copy(this.physicsBody.position);
+                this.mesh.quaternion.copy(this.physicsBody.quaternion);
+                // 물리 시뮬레이션 중 급격한 속도 변화 억제
+                const currentV = this.physicsBody.velocity.length() * 3.6;
+                this.speed = this.speed * 0.9 + currentV * 0.1;
+            }
+            return;
+        }
+
+        const t = (this.dist % CONFIG.trackLength) / CONFIG.trackLength;
+        const u = t % 1;
+        const s = this._scratch;
+        const pos = this.curve.getPointAt(u, s.pos);
+        const tangent = this.curve.getTangentAt(u, s.tangent);
+        const tanLen = Math.sqrt(tangent.x * tangent.x + tangent.y * tangent.y + tangent.z * tangent.z) || 1e-6;
+        const g = 9.81;
+        const accelAlong = -g * (tangent.y / tanLen);
+
+        if (input.throttle > 0) {
+            let baseAccel = (this.speed < 60) ? 45 : 45 * (1 - (this.speed - 60) / 90);
+            if (this.speed >= 150) baseAccel = 0; 
+            this.speed += (baseAccel * input.throttle * dt * 0.7);
+        }
+        if (input.brake > 0) this.speed -= (input.brake * 14 * dt); 
+
+        const v_mps = this.speed / 3.6;
+        const drag = (0.5 * 1.225 * 0.3 * 10 * v_mps * v_mps) / 30000; 
+        this.speed += accelAlong * dt * 3.6;
+        this.speed -= (0.0015 * g * dt * 3.6) + (drag * dt * 3.6);
+        
+        // 속도 보정 (dt에 따른 감쇠 안정화)
+        this.speed *= Math.pow(0.9995, dt * 60);
+
+        if (this.speed < 0) this.speed = 0;
+        // 비정상적인 속도 점프 방지 (최대 가속도 제한)
+        if (this.speed > 300) this.speed = 300; 
+
+        // 이스터에그 탈선 체크 (0.0001% 확률)
+        if (!this.derailed && Math.random() < 0.000001) {
+            this._isEasterEggDerail = true;
+            this.derail();
+            return;
+        }
+
+        // 경고 메시지 및 탈선 로직
+        if (this.speed >= 148) {
+            if (!this._warningShown && window.gui && window.gui.showToast) {
+                window.gui.showToast("조심하세요! 열차가 탈선할 수 있습니다.", { duration: 3000 });
+                this._warningShown = true;
+            }
+        } else {
+            this._warningShown = false;
+        }
+
+        if (this.speed > 150) {
+            this.derailTimer += dt;
+            if (this.derailTimer >= 0.5) {
+                this.derailTimer = 0;
+                if (Math.random() < 0.2) {
+                    if (this.lastRadius < 5000) {
+                        this.derail();
+                        return;
+                    }
+                }
+            }
+        } else {
+            this.derailTimer = 0;
+        }
+
+        this.dist += (this.speed / 3.6) * dt;
+
+        // 선로에 안정적으로 고정
+        this.verticalVelocity = 0; 
+
+        const forwardDir = s.forwardDir.copy(tangent).normalize();
+        const right = s.right.crossVectors(s.worldUp, forwardDir).normalize();
+        if (right.lengthSq() < 1e-6) right.set(1, 0, 0);
+
+        // 곡률 계산
+        const epsilon = 0.001;
+        const p1 = this.curve.getPointAt(Math.max(0, u - epsilon), s.p1);
+        const p2 = this.curve.getPointAt(u, s.p2);
+        const p3 = this.curve.getPointAt(Math.min(1, u + epsilon), s.p3);
+
+        const v1 = s.v1.subVectors(p2, p1);
+        const v2 = s.v2.subVectors(p3, p2);
+        const v1Len = v1.length();
+        const v2Len = v2.length();
+        const curvature = s.cross.crossVectors(v1, v2).length() / (v1Len * v2Len * v1Len + 1e-10);
+        const radius = curvature > 1e-6 ? 1 / curvature : 1e6;
+        this.lastRadius = radius;
+
+        // 뱅킹 각도 계산
+        let bankingAngle = 0;
+        if (this.speed >= 120 && radius <= 300) {
+            const speedRatio = Math.min(1, (this.speed - 120) / 30);
+            const radiusRatio = Math.max(0, (300 - radius) / 300);
+            const factor = speedRatio * radiusRatio;
+            bankingAngle = factor * 0.105;
+        }
+
+        this.mesh.position.copy(pos);
+        const trackHeight = pos.y + 0.15;
+        this.mesh.position.y = trackHeight + this.verticalVelocity;
+
+        const correctedUp = s.correctedUp.crossVectors(forwardDir, right).normalize();
+        
+        if (Math.abs(bankingAngle) > 0.001) {
+            const cos = Math.cos(bankingAngle);
+            const sin = Math.sin(bankingAngle);
+            const newUp = s.newUp.set(
+                correctedUp.x * cos + right.x * sin,
+                correctedUp.y * cos + right.y * sin,
+                correctedUp.z * cos + right.z * sin
+            );
+            const newRight = s.newRight.set(
+                right.x * cos - correctedUp.x * sin,
+                right.y * cos - correctedUp.y * sin,
+                right.z * cos - correctedUp.z * sin
+            );
+            
+            const mat = s.mat;
+            mat.makeBasis(newRight, newUp, forwardDir);
+            this.mesh.quaternion.setFromRotationMatrix(mat);
+        } else {
+            const mat = s.mat;
+            mat.makeBasis(right, correctedUp, forwardDir);
+            this.mesh.quaternion.setFromRotationMatrix(mat);
+        }
+    }
+}
+
+
+
+
+
+
+
+
+
+
