@@ -365,7 +365,7 @@
             flex-direction: row;
             align-items: flex-end;
             gap: 10px;
-            z-index: 20;
+            z-index: 250;
         }
         .world-stack {
             position: relative;
@@ -605,6 +605,12 @@
             justify-content: center;
             backdrop-filter: blur(8px);
         }
+        #pause-overlay {
+            pointer-events: none;
+        }
+        #pause-overlay .panel {
+            pointer-events: auto;
+        }
         .overlay.active { display: flex; }
         .panel.pause { width: 420px; padding: 22px; text-align: center; }
         .panel.pause p { margin: 0; color: #f3f6ff; font-size: 1rem; line-height: 1.6; }
@@ -692,7 +698,7 @@
 
     const html = `
         <div id="calm-overlay" style="position:fixed; inset:0; pointer-events:none; z-index:5; mix-blend-mode:multiply; background: radial-gradient(900px 600px at 60% 20%, rgba(140,190,255,0.12), transparent 60%), radial-gradient(700px 500px at 20% 80%, rgba(145,220,210,0.12), transparent 60%);"></div>
-        <div class="version-badge">v0.5.3</div>
+        <div class="version-badge">v0.5.4</div>
         <div id="derail-badge">열차 탈선!</div>
         <div id="hud-toast">Not connected to the mobile phone</div>
 
@@ -759,10 +765,11 @@
                 <section class="whats-new">
                     <h2>what's new?</h2>
                     <div class="whats-new-list">
-                        <p>Add decorations</p>
-                        <p>Add pause and resume features</p>
-                        <p>Improved user functionality</p>
-                        <p>Version display updated to v0.5.3</p>
+                        <p>Add 2 graphics modes</p>
+                        <p>add zoom in and out functionality</p>
+                        <p>Improved pause and resume features</p>
+                        <p>Improved train station visuals</p>
+                        <p>Version display updated to v0.5.4</p>
                     </div>
                 </section>
             </div>
@@ -866,9 +873,11 @@
                     <div id="settings-graphics" style="display:none;">
                         <label>GRAPHICS QUALITY:</label>
                         <div class="settings-checks" style="margin-bottom:16px;">
+                            <button class="quality-btn" data-quality="very-low">VERY LOW</button>
                             <button class="quality-btn" data-quality="low">LOW</button>
                             <button class="quality-btn" data-quality="medium">MEDIUM</button>
                             <button class="quality-btn" data-quality="high">HIGH</button>
+                            <button class="quality-btn" data-quality="ultra">ULTRA</button>
                         </div>
                         <label>VIEW DISTANCE: <span id="draw-dist-val">20000</span>m</label>
                         <input id="draw-distance" type="range" min="2000" max="40000" value="20000">

@@ -2,7 +2,7 @@
     constructor() {
         this.isDragging = false;
         this.theta = 0; this.phi = Math.PI / 2.5; this.distance = 45;
-        this.targetTheta = 0; this.targetPhi = Math.PI / 2.5;
+        this.targetTheta = 0; this.targetPhi = Math.PI / 2.5; this.targetDistance = 45;
         const isDraggableElement = (e) => {
             const draggableIds = ['friction-volume', 'draw-distance', 'frame-limit', 'time-control'];
             return draggableIds.some(id => e.target.closest(`#${id}`));
@@ -26,15 +26,22 @@
                 this._lastTouch = touch;
             }
         };
+        const onWheel = (e) => {
+            e.preventDefault();
+            const zoomSpeed = 2;
+            this.targetDistance = Math.max(10, Math.min(150, this.targetDistance + (e.deltaY > 0 ? zoomSpeed : -zoomSpeed)));
+        };
         window.addEventListener('mousedown', onDown);
         window.addEventListener('mouseup', onUp);
         window.addEventListener('mousemove', onMove);
         window.addEventListener('touchstart', onTouchStart, false);
         window.addEventListener('touchend', onTouchEnd, false);
         window.addEventListener('touchmove', onTouchMove, { passive: false });
+        window.addEventListener('wheel', onWheel, { passive: false });
     }
     update() {
         this.theta += (this.targetTheta - this.theta) * 0.1;
         this.phi += (this.targetPhi - this.phi) * 0.1;
+        this.distance += (this.targetDistance - this.distance) * 0.15;
     }
 }

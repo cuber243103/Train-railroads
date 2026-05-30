@@ -59,7 +59,7 @@ this.updateHostStatus('Code ready');
 this.scheduleCodeExpiry();
 
 const peerId = this.toPeerId(this.rawCode);
-this.peer = new Peer(peerId);
+this.peer = new Peer(peerId, { debug: 0 });
 this.peer.on('open', () => this.updateHostStatus('Code ready'));
 this.peer.on('connection', (conn) => {
 if (this.codeUsed) {
@@ -74,14 +74,20 @@ try { this.peer.reconnect(); } catch (e) {}
 this.peer.on('error', (err) => {
 if (err && err.type === 'unavailable-id') {
 try { this.peer.destroy(); } catch (e) {}
-this.scheduleReissue(250);
+this.scheduleReissue(2000);
+return;
+}
+if (err && (err.type === 'network' || (err.message && err.message.includes('429')))) {
+this.updateHostStatus('Server busy, retrying...');
+try { this.peer.destroy(); } catch (e) {}
+this.scheduleReissue(5000);
 return;
 }
 this.updateHostStatus('Network error');
 });
 },
 
-scheduleReissue(delayMs = 250) {
+scheduleReissue(delayMs = 2000) {
 if (this.reissueTimer) clearTimeout(this.reissueTimer);
 this.reissueTimer = setTimeout(() => {
 this.reissueTimer = null;
@@ -204,7 +210,7 @@ this.hostId = this.toPeerId(code);
 if (this.peer) {
 try { this.peer.destroy(); } catch (e) {}
 }
-this.peer = new Peer();
+this.peer = new Peer({ debug: 0 });
 this.peer.on('open', () => {
 this.conn = this.peer.connect(this.hostId, { reliable: true });
 this.attachConn(this.conn, false);
@@ -212,10 +218,16 @@ this.attachConn(this.conn, false);
 this.peer.on('disconnected', () => {
 try { this.peer.reconnect(); } catch (e) {}
 });
-this.peer.on('error', () => {
+this.peer.on('error', (err) => {
 this.controllerConnecting = false;
 const statusEl = document.getElementById('controller-status');
-if (statusEl) statusEl.innerText = 'NETWORK ERROR';
+if (statusEl) {
+if (err && (err.type === 'network' || (err.message && err.message.includes('429')))) {
+statusEl.innerText = 'Server busy, retrying...';
+} else {
+statusEl.innerText = 'NETWORK ERROR';
+}
+}
 });
 },
 

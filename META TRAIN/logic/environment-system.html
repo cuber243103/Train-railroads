@@ -62,12 +62,12 @@
         this.sunLight.shadow.camera.right = d;
         this.sunLight.shadow.camera.top = d;
         this.sunLight.shadow.camera.bottom = -d;
-        this.sunLight.shadow.radius = 4;
+        this.sunLight.shadow.radius = this.profile && this.profile.shadowRadius ? this.profile.shadowRadius : 4;
         this.sunLight.shadow.bias = -0.0005;
         scene.add(this.sunLight);
 
         // Visible sun (mesh + glow)
-        const sunSegments = this.profile.lowSpec ? 16 : 24;
+        const sunSegments = this.profile && this.profile.sunSegments ? this.profile.sunSegments : (this.profile.lowSpec ? 16 : 24);
         this.sunMesh = new THREE.Mesh(
             new THREE.SphereGeometry(80, sunSegments, sunSegments),
             new THREE.MeshBasicMaterial({ color: 0xfff2c2 })
@@ -79,7 +79,8 @@
             blending: THREE.AdditiveBlending,
             depthWrite: false
         }));
-        this.sunGlow.scale.set(760, 760, 1);
+        const glowScale = this.profile && this.profile.ultra ? 1120 : 760;
+        this.sunGlow.scale.set(glowScale, glowScale, 1);
         scene.add(this.sunMesh);
         scene.add(this.sunGlow);
 
@@ -90,7 +91,7 @@
 
     createStars() {
         const geom = new THREE.BufferGeometry();
-        const count = this.profile && this.profile.lowSpec ? 900 : 1400;
+        const count = this.profile && this.profile.starCount ? this.profile.starCount : (this.profile && this.profile.lowSpec ? 600 : 1400);
         const pos = [];
         for(let i=0; i<count; i++) {
             const x = (Math.random()-0.5)*10000;
@@ -99,7 +100,7 @@
             pos.push(x,y,z);
         }
         geom.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-        this.stars = new THREE.Points(geom, new THREE.PointsMaterial({color:0xffffff, size: 6, transparent:true, opacity:0}));
+        this.stars = new THREE.Points(geom, new THREE.PointsMaterial({color:0xffffff, size: this.profile && this.profile.lowSpec ? 4 : 6, transparent:true, opacity:0}));
         this.scene.add(this.stars);
     }
 
@@ -107,8 +108,8 @@
         this.cloudTexture = this._makeCloudTexture();
         this.cloudTexture.minFilter = THREE.LinearMipMapLinearFilter;
         this.cloudTexture.magFilter = THREE.LinearFilter;
-        this.cloudTexture.anisotropy = this.profile && this.profile.lowSpec ? 1 : 4;
-        const count = 12;
+        this.cloudTexture.anisotropy = this.profile && this.profile.cloudAnisotropy ? this.profile.cloudAnisotropy : (this.profile && this.profile.lowSpec ? 1 : 4);
+        const count = this.profile && this.profile.cloudCount ? this.profile.cloudCount : 12;
         for (let i = 0; i < count; i++) {
             const mat = new THREE.SpriteMaterial({
                 map: this.cloudTexture,
@@ -156,8 +157,10 @@
 
         if (safe === 'rain' || safe === 'snow') {
             const count = this.profile && this.profile.lowSpec
-                ? (safe === 'rain' ? 1100 : 850)
-                : (safe === 'rain' ? 1700 : 1300);
+                ? (safe === 'rain' ? 850 : 650)
+                : (this.profile && this.profile.ultra
+                    ? (safe === 'rain' ? 2200 : 1700)
+                    : (safe === 'rain' ? 1700 : 1300));
             const positions = [];
             const velocities = [];
             for (let i = 0; i < count; i++) {
@@ -248,14 +251,17 @@
         const sunPower = currentSunInt * wp.sunMul * (1 + goldenHour * 0.28);
         const sunColor = colors.sunColor.copy(colors.sunWarm).lerp(colors.white, Math.min(1, currentSunInt + 0.14));
 
-        this.sunLight.intensity = sunPower;
+        this.sunLight.intensity = sunPower * (this.profile && this.profile.ultra ? 1.22 : 1.0);
         this.sunLight.color.copy(sunColor);
         this.hemiLight.intensity = currentAmbInt * wp.hemiMul;
         this.ambientLight.intensity = (0.08 + currentAmbInt * 0.35) * wp.ambMul;
         this.hemiLight.groundColor.copy(colors.hemiGround.copy(colors.groundWarm).lerp(weatherFog, 0.25 + wp.groundFogMix));
 
         if (this.sunMesh) this.sunMesh.material.color.copy(sunColor);
-        if (this.sunGlow) this.sunGlow.material.color.copy(sunColor);
+        if (this.sunGlow) {
+            this.sunGlow.material.color.copy(sunColor);
+            this.sunGlow.material.opacity = THREE.MathUtils.clamp(0.5 + sunPower * 0.3 + goldenHour * 0.45, 0.0, 1.0);
+        }
         if(this.stars) this.stars.material.opacity = currentStarOp;
 
         const angle = ((floatTime - 6) / 14) * Math.PI;

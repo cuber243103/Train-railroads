@@ -14,25 +14,36 @@ mapMode: 'forest',
 getSavedGraphicsQuality() {
 try {
 const stored = localStorage.getItem('trainGraphicsQuality');
-return (stored === 'low' || stored === 'medium' || stored === 'high') ? stored : 'high';
+return (stored === 'very-low' || stored === 'low' || stored === 'medium' || stored === 'high' || stored === 'ultra') ? stored : 'high';
 } catch (e) {
 return 'high';
 }
 },
 
 makePerformanceProfile(quality = 'high') {
+const isVeryLow = quality === 'very-low';
 const isLow = quality === 'low';
 const isMed = quality === 'medium';
+const isUltra = quality === 'ultra';
 return {
     quality: quality,
-    lowSpec: isLow,
-    maxPixelRatio: isLow ? 1 : (isMed ? 1.5 : 2),
-    shadowMapSize: isLow ? 1024 : (isMed ? 2048 : 4096),
-    postSamples: isLow ? 0 : (isMed ? 2 : 4),
-    treeShadowMode: isLow ? 'trunk' : (isMed ? 'trunk' : 'full'),
-    treeDetail: isLow ? 'low' : (isMed ? 'medium' : 'full'),
-    textureSize: isLow ? 256 : (isMed ? 384 : 512),
-    defaultFrameLimit: isLow ? 30 : (isMed ? 0 : 0)
+    lowSpec: isVeryLow || isLow,
+    ultra: isUltra,
+    maxPixelRatio: isVeryLow ? 0.35 : (isLow ? 0.75 : (isMed ? 1.5 : (isUltra ? 3 : 2))),
+    shadowMapSize: isVeryLow ? 256 : (isLow ? 1024 : (isMed ? 2048 : (isUltra ? 8192 : 4096))),
+    postSamples: isVeryLow ? 0 : (isLow ? 0 : (isMed ? 2 : (isUltra ? 8 : 4))),
+    treeShadowMode: isVeryLow ? 'none' : (isLow ? 'trunk' : 'full'),
+    treeDetail: isVeryLow ? 'minimal' : (isLow ? 'low' : (isMed ? 'medium' : 'full')),
+    textureSize: isVeryLow ? 96 : (isLow ? 256 : (isMed ? 384 : (isUltra ? 1024 : 512))),
+    defaultFrameLimit: isVeryLow ? 45 : (isLow ? 30 : (isUltra ? 0 : 0)),
+    exposure: isVeryLow ? 0.95 : (isLow ? 1.0 : (isMed ? 1.1 : (isUltra ? 1.35 : 1.12))),
+    bloomEnabled: isUltra,
+    bloomStrength: isUltra ? 0.16 : 0.0,
+    sunSegments: isVeryLow ? 12 : (isLow ? 16 : (isMed ? 24 : (isUltra ? 32 : 24))),
+    cloudCount: isVeryLow ? 4 : (isLow ? 8 : (isMed ? 12 : (isUltra ? 18 : 12))),
+    cloudAnisotropy: isVeryLow ? 1 : (isLow ? 2 : (isMed ? 4 : (isUltra ? 8 : 4))),
+    starCount: isVeryLow ? 600 : (isLow ? 900 : (isMed ? 1400 : (isUltra ? 1800 : 1400))),
+    shadowRadius: isVeryLow ? 2 : (isUltra ? 8 : 4)
 };
 },
 
@@ -42,7 +53,7 @@ return Math.min(window.devicePixelRatio || 1, profile.maxPixelRatio || 2);
 },
 
 setGraphicsQuality(quality = 'high', options = {}) {
-const safe = (quality === 'low' || quality === 'medium') ? quality : 'high';
+const safe = (quality === 'very-low' || quality === 'low' || quality === 'medium' || quality === 'ultra') ? quality : 'high';
 this.graphicsQuality = safe;
 this._perfProfile = this.makePerformanceProfile(safe);
 window.__trainPerfProfile = this._perfProfile;
@@ -69,7 +80,11 @@ envSystem.sunLight.shadow.needsUpdate = true;
 }
 
 this._renderPixelRatio = this.getRenderPixelRatio();
-if (this.renderer) this.onWindowResize();
+if (this.renderer) {
+    this.onWindowResize();
+    this.renderer.toneMappingExposure = this._perfProfile.exposure || 1.12;
+    this.renderer.shadowMap.type = this._perfProfile.lowSpec ? THREE.BasicShadowMap : THREE.PCFSoftShadowMap;
+}
 if (this.renderTarget && this.renderer && this.renderer.capabilities && this.renderer.capabilities.isWebGL2) {
 this.renderTarget.samples = this._perfProfile.postSamples;
 }
@@ -121,10 +136,10 @@ this.renderer.setSize(window.innerWidth, window.innerHeight);
 this.renderer.setPixelRatio(this._renderPixelRatio);
 this.renderer.outputEncoding = THREE.sRGBEncoding;
 this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-this.renderer.toneMappingExposure = 1.12;
+this.renderer.toneMappingExposure = this._perfProfile.exposure || 1.12;
 this.renderer.physicallyCorrectLights = true;
 this.renderer.shadowMap.enabled = true;
-this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+this.renderer.shadowMap.type = this._perfProfile.lowSpec ? THREE.BasicShadowMap : THREE.PCFSoftShadowMap;
 document.body.appendChild(this.renderer.domElement);
 
 this.updateBadgeDisplay();
@@ -175,6 +190,9 @@ this.postMaterial = new THREE.ShaderMaterial({
         tDiffuse: { value: null },
         resolution: { value: new THREE.Vector2(size.x * dpr, size.y * dpr) },
         time: { value: 0.0 },
+        sunPosition: { value: new THREE.Vector2(0.5, 0.5) },
+        bloomEnabled: { value: !!this._perfProfile.bloomEnabled },
+        bloomStrength: { value: this._perfProfile.bloomStrength || 0.0 },
     },
     vertexShader: `
         varying vec2 vUv;
@@ -187,6 +205,9 @@ this.postMaterial = new THREE.ShaderMaterial({
         uniform sampler2D tDiffuse;
         uniform vec2 resolution;
         uniform float time;
+        uniform vec2 sunPosition;
+        uniform bool bloomEnabled;
+        uniform float bloomStrength;
         varying vec2 vUv;
 
         vec3 fxaa(sampler2D tex, vec2 uv, vec2 resolution) {
@@ -220,8 +241,28 @@ this.postMaterial = new THREE.ShaderMaterial({
             return (lumaB < lumaMin || lumaB > lumaMax) ? rgbA : rgbB;
         }
 
+        vec3 bloom(sampler2D tex, vec2 uv, vec2 resolution) {
+            vec2 offset = 1.0 / resolution * 2.0;
+            vec3 c = texture2D(tex, uv).rgb * 0.4;
+            c += texture2D(tex, uv + vec2(offset.x, 0.0)).rgb * 0.15;
+            c += texture2D(tex, uv - vec2(offset.x, 0.0)).rgb * 0.15;
+            c += texture2D(tex, uv + vec2(0.0, offset.y)).rgb * 0.15;
+            c += texture2D(tex, uv - vec2(0.0, offset.y)).rgb * 0.15;
+            return c;
+        }
+
+        float sunGlow(vec2 uv, vec2 sunPos) {
+            float d = distance(uv, sunPos);
+            return smoothstep(0.22, 0.0, d) * pow(max(0.0, 1.0 - d * 2.8), 1.8);
+        }
+
         void main() {
             vec3 color = fxaa(tDiffuse, vUv, resolution);
+            if (bloomEnabled) {
+                vec3 glow = bloom(tDiffuse, vUv, resolution);
+                color += max(glow - color, vec3(0.0)) * bloomStrength;
+                color += vec3(1.0, 0.92, 0.75) * sunGlow(vUv, sunPosition) * bloomStrength * 1.1;
+            }
             color = pow(color, vec3(1.0/1.05));
             gl_FragColor = vec4(color, 1.0);
         }
@@ -816,8 +857,19 @@ if (this.isPaused) {
     this.renderer.setRenderTarget(this.renderTarget);
     this.renderer.render(this.scene, this.camera);
     this.renderer.setRenderTarget(null);
+    if (this.postMaterial && this.postMaterial.uniforms && this.postMaterial.uniforms.sunPosition) {
+        const sunScreen = new THREE.Vector3();
+        if (envSystem && envSystem.sunMesh && this.camera) {
+            sunScreen.copy(envSystem.sunMesh.position).project(this.camera);
+            this.postMaterial.uniforms.sunPosition.value.set(0.5 + sunScreen.x * 0.5, 0.5 - sunScreen.y * 0.5);
+        } else {
+            this.postMaterial.uniforms.sunPosition.value.set(0.5, 0.5);
+        }
+    }
     this.postMaterial.uniforms.tDiffuse.value = this.renderTarget.texture;
     this.postMaterial.uniforms.time.value = now * 0.001;
+    this.postMaterial.uniforms.bloomEnabled.value = !!this._perfProfile.bloomEnabled;
+    this.postMaterial.uniforms.bloomStrength.value = this._perfProfile.bloomStrength || 0.0;
     this.renderer.render(this.postScene, this.postCamera);
     return;
 }
@@ -918,8 +970,19 @@ this.particleSystem.update(this.camera.position);
 this.renderer.setRenderTarget(this.renderTarget);
 this.renderer.render(this.scene, this.camera);
 this.renderer.setRenderTarget(null);
+if (this.postMaterial && this.postMaterial.uniforms && this.postMaterial.uniforms.sunPosition) {
+    const sunScreen = new THREE.Vector3();
+    if (envSystem && envSystem.sunMesh && this.camera) {
+        sunScreen.copy(envSystem.sunMesh.position).project(this.camera);
+        this.postMaterial.uniforms.sunPosition.value.set(0.5 + sunScreen.x * 0.5, 0.5 - sunScreen.y * 0.5);
+    } else {
+        this.postMaterial.uniforms.sunPosition.value.set(0.5, 0.5);
+    }
+}
 this.postMaterial.uniforms.tDiffuse.value = this.renderTarget.texture;
 this.postMaterial.uniforms.time.value = now * 0.001;
+this.postMaterial.uniforms.bloomEnabled.value = !!this._perfProfile.bloomEnabled;
+this.postMaterial.uniforms.bloomStrength.value = this._perfProfile.bloomStrength || 0.0;
 this.renderer.render(this.postScene, this.postCamera);
 }
 };
