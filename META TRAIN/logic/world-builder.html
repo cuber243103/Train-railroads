@@ -277,8 +277,9 @@
                 const worldUp = new THREE.Vector3(0, 1, 0);
                 let right = new THREE.Vector3().crossVectors(worldUp, tangent).normalize();
                 if (right.lengthSq() < 1e-6) right.set(1, 0, 0);
+                const h = this.getHeight(p.x, p.z) + 1.25;
                 p.add(right.multiplyScalar(offsetX));
-                p.y = this.getHeight(p.x, p.z) + 1.25;
+                p.y = h;
                 pts.push(p);
             }
             return new THREE.CatmullRomCurve3(pts, true);

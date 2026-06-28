@@ -114,7 +114,9 @@ updateBadgeDisplay() {
     const badge = document.getElementById('derail-badge');
     if (badge) {
         const unlocked = localStorage.getItem('derailEasterEgg') === 'true';
-        badge.style.display = unlocked ? 'block' : 'none';
+        const mainMenu = document.getElementById('main-menu');
+        const menuVisible = !mainMenu || (window.getComputedStyle(mainMenu).display !== 'none' && window.getComputedStyle(mainMenu).opacity !== '0');
+        badge.style.display = unlocked && !this.isStarted && menuVisible ? 'block' : 'none';
     }
 },
 

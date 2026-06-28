@@ -24,6 +24,7 @@ const main = document.getElementById('main-menu');
 if (main) main.style.opacity = '0';
 setTimeout(() => {
 if (main) main.style.display = 'none';
+if (window.app && window.app.updateBadgeDisplay) window.app.updateBadgeDisplay();
 startGame();
 }, 380);
 }
@@ -45,6 +46,7 @@ if (hud) hud.style.display = 'block';
 const oldCanvas = document.querySelector('canvas');
 if (oldCanvas) oldCanvas.remove();
 app.isStarted = true;
+if (window.app && window.app.updateBadgeDisplay) window.app.updateBadgeDisplay();
 app.preInit();
 if (window.desktopBypass && app.setRemoteConnected) {
     app.setRemoteConnected(false);

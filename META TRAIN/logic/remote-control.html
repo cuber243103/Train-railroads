@@ -119,8 +119,25 @@ this.reissueTimer = null;
 updateHostCode() {
 const codeEl = document.getElementById('pair-code');
 const codeOverlayEl = document.getElementById('pair-code-overlay');
-if (codeEl) codeEl.innerText = this.formatCode(this.rawCode);
-if (codeOverlayEl) codeOverlayEl.innerText = this.formatCode(this.rawCode);
+const formattedCode = this.formatCode(this.rawCode);
+if (codeEl) {
+codeEl.innerText = formattedCode;
+// 클릭 시 복사 기능 추가
+codeEl.addEventListener('click', () => {
+const codeToCopy = this.rawCode || formattedCode.replace('-', '');
+navigator.clipboard.writeText(codeToCopy).then(() => {
+// 복사 성공 피드백
+codeEl.classList.add('pair-code-copied');
+if (typeof window.gui !== 'undefined' && window.gui.showToast) {
+window.gui.showToast('Pairing code copied!', { duration: 2000 });
+}
+setTimeout(() => codeEl.classList.remove('pair-code-copied'), 600);
+}).catch(err => {
+console.error('Failed to copy code:', err);
+});
+}, { once: false });
+}
+if (codeOverlayEl) codeOverlayEl.innerText = formattedCode;
 },
 
 updateHostStatus(msg) {
@@ -253,17 +270,20 @@ this.controllerInputsBound = true;
 const handleEl = document.getElementById('ctrl-handle');
 const camBtn = document.getElementById('ctrl-cam');
 const stopBtn = document.getElementById('ctrl-stop');
+const throttleBrakeSection = document.querySelector('.throttle-brake-section');
 
 let throttle = 0;
 let brake = 0;
+let isDragging = false;
+let dragStartY = 0;
+let currentDragValue = 0;
+
 const sendInput = () => {
 if (this.conn && this.conn.open) this.conn.send({ type: 'input', throttle, brake });
 };
 
-if (handleEl) {
-handleEl.value = '0';
-handleEl.addEventListener('input', (e) => {
-const v = Number(e.target.value) || 0;
+const updateValue = (v) => {
+currentDragValue = v;
 const dead = 6;
 if (v > dead) {
 throttle = Math.min(1, v / 100);
@@ -275,7 +295,55 @@ brake = Math.min(1, Math.abs(v) / 100);
 throttle = 0;
 brake = 0;
 }
+if (typeof window.gui !== 'undefined' && window.gui.updateHandleDisplay) {
+window.gui.updateHandleDisplay(v);
+}
+if (handleEl) handleEl.value = v;
 sendInput();
+};
+
+if (handleEl) {
+handleEl.value = '0';
+handleEl.addEventListener('input', (e) => {
+const v = Number(e.target.value) || 0;
+updateValue(v);
+});
+}
+
+// 터치 드래그 기능 추가
+if (throttleBrakeSection) {
+throttleBrakeSection.addEventListener('touchstart', (e) => {
+isDragging = true;
+dragStartY = e.touches[0].clientY;
+}, { passive: true });
+
+throttleBrakeSection.addEventListener('touchmove', (e) => {
+if (!isDragging) return;
+e.preventDefault();
+const deltaY = dragStartY - e.touches[0].clientY;
+const v = Math.max(-100, Math.min(100, deltaY / 2));
+updateValue(Math.round(v));
+}, { passive: false });
+
+throttleBrakeSection.addEventListener('touchend', () => {
+isDragging = false;
+}, { passive: true });
+
+// 마우스 드래그도 지원 (데스크탑 테스트용)
+throttleBrakeSection.addEventListener('mousedown', (e) => {
+isDragging = true;
+dragStartY = e.clientY;
+});
+
+document.addEventListener('mousemove', (e) => {
+if (!isDragging) return;
+const deltaY = dragStartY - e.clientY;
+const v = Math.max(-100, Math.min(100, deltaY / 2));
+updateValue(Math.round(v));
+});
+
+document.addEventListener('mouseup', () => {
+isDragging = false;
 });
 }
 
@@ -289,7 +357,7 @@ if (stopBtn) {
 stopBtn.addEventListener('click', () => {
 throttle = 0;
 brake = 1;
-if (handleEl) handleEl.value = '-100';
+updateValue(-100);
 if (this.conn && this.conn.open) this.conn.send({ type: 'stop' });
 });
 }

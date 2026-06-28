@@ -279,6 +279,28 @@
             color: #0066cc;
             font-weight: 600;
             border: 1px solid #cce5ff;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+        #pair-code:hover {
+            background: #e8f1ff;
+            border-color: #99c5ff;
+            box-shadow: 0 4px 12px rgba(0, 102, 204, 0.15);
+            transform: translateY(-2px);
+        }
+        #pair-code:active {
+            transform: translateY(0);
+            box-shadow: 0 2px 6px rgba(0, 102, 204, 0.1);
+        }
+        .pair-code-copied {
+            animation: copy-pulse 0.6s ease-out;
+        }
+        @keyframes copy-pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+            100% { transform: scale(1); }
         }
         .pair-status {
             font-size: 0.75rem;
@@ -497,26 +519,30 @@
         }
         #controller-screen.active { display: flex; }
         .controller-panel {
-            width: min(520px, 92vw);
+            width: min(540px, 96vw);
+            max-height: 95vh;
             border-radius: 24px;
             background: var(--panel);
             border: none;
-            padding: 22px;
+            padding: 24px;
             display: flex;
             flex-direction: column;
-            gap: 16px;
+            gap: 18px;
             box-shadow: var(--shadow);
+            overflow-y: auto;
         }
         .controller-title {
             font-family: "Montserrat", "Segoe UI", sans-serif;
-            font-size: 1.6rem;
+            font-size: 1.8rem;
             letter-spacing: 0.12em;
+            font-weight: 700;
         }
         .controller-status {
-            font-size: 0.8rem;
+            font-size: 0.9rem;
             letter-spacing: 0.22em;
             color: var(--muted);
             text-transform: uppercase;
+            font-weight: 600;
         }
         .controller-slider label {
             font-size: 0.7rem;
@@ -528,7 +554,12 @@
             width: 100%;
             accent-color: var(--accent);
         }
-        .controller-buttons { display: flex; gap: 10px; flex-wrap: wrap; }
+        .controller-buttons { 
+            display: flex; 
+            gap: 12px; 
+            flex-wrap: wrap;
+            justify-content: center;
+        }
         #controller-setup { display: flex; flex-direction: column; gap: 12px; }
         #controller-code {
             width: 100%;
@@ -544,24 +575,36 @@
         #controller-code:focus { outline: none; border-color: rgba(47,125,255,0.55); }
         .ctrl-btn {
             flex: 1;
-            min-width: 120px;
-            padding: 12px 14px;
+            min-width: 140px;
+            padding: 16px 14px;
             border-radius: 14px;
             border: none;
-            background: rgba(250,253,255,0.9);
-            color: var(--text);
+            background: linear-gradient(135deg, #5ba3e8, #4a95d8);
+            color: white;
             letter-spacing: 0.18em;
             text-transform: uppercase;
-            font-size: 0.75rem;
+            font-size: 0.85rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            box-shadow: 0 4px 12px rgba(91, 163, 232, 0.3);
+        }
+        .ctrl-btn:active {
+            transform: scale(0.95);
+            box-shadow: 0 2px 6px rgba(91, 163, 232, 0.2);
+        }
+        .ctrl-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 16px rgba(91, 163, 232, 0.4);
         }
         .controller-subpanel {
             border: none;
             border-radius: 16px;
             background: rgba(255,255,255,0.7);
-            padding: 14px;
+            padding: 18px;
             display: flex;
             flex-direction: column;
-            gap: 12px;
+            gap: 18px;
         }
         .controller-label {
             font-size: 0.7rem;
@@ -570,29 +613,128 @@
             color: var(--muted);
         }
         .controller-handle {
-            display: grid;
-            grid-template-columns: 1fr auto;
-            gap: 14px;
+            display: flex;
+            flex-direction: column;
+            gap: 18px;
             align-items: center;
-            min-height: 290px;
+            justify-content: center;
+            min-height: 340px;
+            padding: 20px;
+            background: linear-gradient(135deg, rgba(95, 163, 232, 0.08), rgba(47, 125, 255, 0.06));
+            border-radius: 20px;
+            border: 1px solid rgba(47, 125, 255, 0.2);
+            user-select: none;
+            -webkit-user-select: none;
+            touch-action: manipulation;
+        }
+        .throttle-brake-section {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            width: 100%;
+            max-width: 320px;
+            user-select: none;
+            -webkit-user-select: none;
+            -moz-user-select: none;
+            touch-action: none;
+        }
+        .throttle-brake-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 10px;
+            pointer-events: auto;
+        }
+        .throttle-brake-label {
+            font-size: 0.7rem;
+            letter-spacing: 0.24em;
+            color: var(--muted);
+            text-transform: uppercase;
+            font-weight: 600;
+        }
+        .throttle-scale,
+        .brake-scale {
+            display: flex;
+            flex-direction: column;
+            height: 240px;
+            width: 56px;
+            background: rgba(255,255,255,0.5);
+            border-radius: 12px;
+            border: 2px solid rgba(47, 125, 255, 0.3);
+            overflow: hidden;
+            position: relative;
+            cursor: grab;
+            active: grabbing;
+            transition: border-color 0.2s ease, box-shadow 0.2s ease;
+        }
+        .throttle-scale:active,
+        .brake-scale:active {
+            cursor: grabbing;
+            box-shadow: 0 0 12px rgba(47, 125, 255, 0.5);
+        }
+        .throttle-scale {
+            background: linear-gradient(to top, rgba(95, 163, 232, 0.15), transparent);
+            border-color: rgba(95, 163, 232, 0.4);
+        }
+        .brake-scale {
+            background: linear-gradient(to top, rgba(228, 91, 91, 0.15), transparent);
+            border-color: rgba(228, 91, 91, 0.4);
+        }
+        .scale-indicator {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            padding: 4px 0;
+            pointer-events: none;
+        }
+        .scale-mark {
+            height: 1px;
+            background: rgba(0,0,0,0.1);
+            width: 100%;
+        }
+        .throttle-fill-bar,
+        .brake-fill-bar {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            transition: height 0.05s linear;
+        }
+        .throttle-fill-bar {
+            background: linear-gradient(to top, #2fc96f, #5ddb7f);
+            box-shadow: 0 0 10px rgba(47, 201, 111, 0.4);
+        }
+        .brake-fill-bar {
+            background: linear-gradient(to top, #e35b5b, #f07070);
+            box-shadow: 0 0 10px rgba(227, 91, 91, 0.4);
         }
         .handle-labels {
             display: flex;
             flex-direction: column;
-            justify-content: space-between;
-            height: 260px;
+            justify-content: center;
+            align-items: center;
+            gap: 12px;
             font-size: 0.72rem;
             color: var(--muted);
             letter-spacing: 0.18em;
             text-transform: uppercase;
         }
+        .neutral-indicator {
+            padding: 8px 14px;
+            border-radius: 8px;
+            background: rgba(47, 125, 255, 0.12);
+            border: 1px solid rgba(47, 125, 255, 0.3);
+            font-size: 0.75rem;
+            letter-spacing: 0.2em;
+            text-transform: uppercase;
+            color: var(--accent);
+            font-weight: 600;
+        }
         #ctrl-handle {
-            height: 260px;
-            width: 56px;
-            writing-mode: bt-lr;
-            -webkit-appearance: slider-vertical;
-            appearance: slider-vertical;
-            accent-color: var(--accent);
+            display: none;
         }
 
         .overlay {
@@ -698,7 +840,7 @@
 
     const html = `
         <div id="calm-overlay" style="position:fixed; inset:0; pointer-events:none; z-index:5; mix-blend-mode:multiply; background: radial-gradient(900px 600px at 60% 20%, rgba(140,190,255,0.12), transparent 60%), radial-gradient(700px 500px at 20% 80%, rgba(145,220,210,0.12), transparent 60%);"></div>
-        <div class="version-badge">v0.5.4</div>
+        <div class="version-badge">v0.5.5</div>
         <div id="derail-badge">열차 탈선!</div>
         <div id="hud-toast">Not connected to the mobile phone</div>
 
@@ -712,20 +854,42 @@
                 </div>
                 <div id="controller-controls" style="display:none;">
                     <div id="controller-drive-panel" class="controller-subpanel">
-                        <div class="controller-label">Drive</div>
+                        <div class="controller-label">TRAIN CONTROL</div>
                         <div class="controller-handle">
-                            <div class="handle-labels">
-                                <span>Throttle</span>
-                                <span>Neutral</span>
-                                <span>Brake</span>
+                            <div class="throttle-brake-section">
+                                <div class="throttle-brake-item">
+                                    <div class="throttle-brake-label">Throttle</div>
+                                    <div class="throttle-scale">
+                                        <div class="scale-indicator">
+                                            <div class="scale-mark"></div>
+                                            <div class="scale-mark"></div>
+                                            <div class="scale-mark"></div>
+                                            <div class="scale-mark"></div>
+                                        </div>
+                                        <div id="throttle-bar-display" class="throttle-fill-bar" style="height:0%;"></div>
+                                    </div>
+                                </div>
+                                <div class="throttle-brake-item">
+                                    <div class="throttle-brake-label">Brake</div>
+                                    <div class="brake-scale">
+                                        <div class="scale-indicator">
+                                            <div class="scale-mark"></div>
+                                            <div class="scale-mark"></div>
+                                            <div class="scale-mark"></div>
+                                            <div class="scale-mark"></div>
+                                        </div>
+                                        <div id="brake-bar-display" class="brake-fill-bar" style="height:0%;"></div>
+                                    </div>
+                                </div>
                             </div>
+                            <div class="neutral-indicator" id="neutral-status">NEUTRAL</div>
                             <input id="ctrl-handle" type="range" min="-100" max="100" value="0" step="1">
                         </div>
                         <div class="controller-buttons">
                             <button id="ctrl-cam" class="ctrl-btn">Camera</button>
                             <button id="ctrl-stop" class="ctrl-btn">Stop</button>
                         </div>
-                        <div style="font-size:0.78rem; color: var(--muted); line-height:1.5;">
+                        <div style="font-size:0.78rem; color: var(--muted); line-height:1.5; text-align:center;">
                             Keep this screen open. Your phone becomes the train controller.
                         </div>
                     </div>
@@ -756,7 +920,7 @@
                                     <div class="pair-title">Pairing Code</div>
                                     <div id="pair-code">--- ---</div>
                                     <div id="pair-status" class="pair-status">Generating code</div>
-                                    <div class="pair-hint">Open on phone and enter code</div>
+                                    <div class="pair-hint">Click to copy</div>
                                 </div>
                             </div>
                         </div>
@@ -765,11 +929,11 @@
                 <section class="whats-new">
                     <h2>what's new?</h2>
                     <div class="whats-new-list">
-                        <p>Add 2 graphics modes</p>
-                        <p>add zoom in and out functionality</p>
-                        <p>Improved pause and resume features</p>
-                        <p>Improved train station visuals</p>
-                        <p>Version display updated to v0.5.4</p>
+                        <p>Solving track height issues</p>
+                        <p>Added pairing code copy feature</p>
+                        <p>Improved mobile controller functionality</p>
+                        <p>Edit badge location</p>
+                        <p>Version display updated to v0.5.5</p>
                     </div>
                 </section>
             </div>
@@ -940,6 +1104,38 @@
                 setTimeout(() => {
                     toast.classList.remove('show');
                 }, options.duration || 3000);
+            }
+        },
+        updateHandleDisplay: function(value) {
+            const throttleBar = document.getElementById('throttle-bar-display');
+            const brakeBar = document.getElementById('brake-bar-display');
+            const neutralStatus = document.getElementById('neutral-status');
+            
+            if (!throttleBar || !brakeBar || !neutralStatus) return;
+            
+            const safeValue = Math.max(-100, Math.min(100, value));
+            
+            if (safeValue > 2) {
+                throttleBar.style.height = (safeValue) + '%';
+                brakeBar.style.height = '0%';
+                neutralStatus.textContent = 'THROTTLE';
+                neutralStatus.style.color = '#2fc96f';
+                neutralStatus.style.borderColor = 'rgba(47, 201, 111, 0.5)';
+                neutralStatus.style.background = 'rgba(47, 201, 111, 0.15)';
+            } else if (safeValue < -2) {
+                throttleBar.style.height = '0%';
+                brakeBar.style.height = (-safeValue) + '%';
+                neutralStatus.textContent = 'BRAKE';
+                neutralStatus.style.color = '#e35b5b';
+                neutralStatus.style.borderColor = 'rgba(227, 91, 91, 0.5)';
+                neutralStatus.style.background = 'rgba(227, 91, 91, 0.15)';
+            } else {
+                throttleBar.style.height = '0%';
+                brakeBar.style.height = '0%';
+                neutralStatus.textContent = 'NEUTRAL';
+                neutralStatus.style.color = '#2f7dff';
+                neutralStatus.style.borderColor = 'rgba(47, 125, 255, 0.3)';
+                neutralStatus.style.background = 'rgba(47, 125, 255, 0.12)';
             }
         }
     };
