@@ -1,0 +1,14 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "train-railroads",
+  "compatibility_date": "2026-06-30",
+  "observability": {
+    "enabled": true
+  },
+  "assets": {
+    "directory": "META TRAIN"
+  },
+  "compatibility_flags": [
+    "nodejs_compat"
+  ]
+}
